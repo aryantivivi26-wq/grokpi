@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 class LocalSSOManager:
@@ -17,19 +17,30 @@ class LocalSSOManager:
         keys = [line.strip() for line in lines if line.strip()]
         return keys
 
-    def add_key(self, key: str) -> Dict[str, str]:
+    def add_key(self, key: str) -> Dict[str, Any]:
         key = key.strip()
         if not key:
             return {"status": "error", "message": "Key kosong"}
 
         keys = self.list_keys()
+        before_count = len(keys)
         if key in keys:
-            return {"status": "ok", "message": "Key sudah ada"}
+            return {
+                "status": "exists",
+                "message": "Key sudah ada (duplikat), tidak ditambahkan",
+                "before_count": before_count,
+                "after_count": before_count,
+            }
 
         with self.file_path.open("a", encoding="utf-8") as f:
             f.write(key + "\n")
 
-        return {"status": "ok", "message": "Key ditambahkan"}
+        return {
+            "status": "ok",
+            "message": "Key ditambahkan",
+            "before_count": before_count,
+            "after_count": before_count + 1,
+        }
 
     def remove_last_key(self) -> Dict[str, str]:
         keys = self.list_keys()

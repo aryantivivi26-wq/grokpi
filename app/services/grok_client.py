@@ -948,6 +948,21 @@ class GrokImagineClient:
 
         except aiohttp.ClientError as e:
             logger.error(f"[Grok] Error koneksi: {e}")
+            error_text = str(e)
+            error_code = ""
+
+            if "429" in error_text:
+                error_code = "rate_limit_exceeded"
+            elif "401" in error_text or "403" in error_text:
+                error_code = "unauthorized"
+
+            if error_code:
+                return {
+                    "success": False,
+                    "error_code": error_code,
+                    "error": f"Koneksi gagal: {e}",
+                }
+
             return {"success": False, "error": f"Koneksi gagal: {e}"}
 
     async def _do_generate_video(

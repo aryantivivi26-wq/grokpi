@@ -109,16 +109,38 @@ async def add_sso_finish(message: Message, state: FSMContext) -> None:
         menu_text = "🔐 <b>SSO Manager</b>\nKelola key SSO lokal untuk gateway."
         menu_keyboard = sso_menu_keyboard()
 
-    if result["status"] != "ok":
+    if result["status"] == "error":
         await message.answer(f"❌ {result['message']}")
+        await message.answer(menu_text, reply_markup=menu_keyboard)
+        return
+
+    if result["status"] == "exists":
+        before_count = int(result.get("before_count", 0) or 0)
+        after_count = int(result.get("after_count", before_count) or before_count)
+        await message.answer(
+            f"⚠️ {result['message']}\n"
+            f"Total key: {before_count} -> {after_count}"
+        )
         await message.answer(menu_text, reply_markup=menu_keyboard)
         return
 
     try:
         reload_result = await gateway_client.reload_sso()
-        await message.answer(f"✅ {result['message']}\n🔄 Reload gateway: {reload_result}")
+        before_count = int(result.get("before_count", 0) or 0)
+        after_count = int(result.get("after_count", before_count) or before_count)
+        await message.answer(
+            f"✅ {result['message']}\n"
+            f"Total key: {before_count} -> {after_count}\n"
+            f"🔄 Reload gateway: {reload_result}"
+        )
     except Exception as exc:
-        await message.answer(f"✅ {result['message']}\n⚠️ Reload gateway gagal: {exc}")
+        before_count = int(result.get("before_count", 0) or 0)
+        after_count = int(result.get("after_count", before_count) or before_count)
+        await message.answer(
+            f"✅ {result['message']}\n"
+            f"Total key: {before_count} -> {after_count}\n"
+            f"⚠️ Reload gateway gagal: {exc}"
+        )
     await message.answer(menu_text, reply_markup=menu_keyboard)
 
 

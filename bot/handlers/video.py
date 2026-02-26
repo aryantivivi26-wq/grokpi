@@ -31,6 +31,14 @@ def _resolve_local_video_path(url: str) -> Path | None:
     return None
 
 
+def _is_local_url(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in {"127.0.0.1", "localhost", "0.0.0.0"}
+
+
 def _video_settings_text(aspect: str, duration: int, resolution: str, preset: str) -> str:
     return (
         "🎬 <b>Video Generator</b>\n"
@@ -215,6 +223,12 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
                     sent = True
                 except Exception:
                     sent = False
+                if not sent:
+                    try:
+                        await message.answer_document(document=FSInputFile(str(local_path)))
+                        sent = True
+                    except Exception:
+                        sent = False
             if sent:
                 await user_limit_manager.consume(
                     user_id,
@@ -224,11 +238,12 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
                 await state.clear()
                 await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
                 return
-            try:
-                await message.answer_video(video=video_url)
-                sent = True
-            except Exception:
-                sent = False
+            if not _is_local_url(video_url):
+                try:
+                    await message.answer_video(video=video_url)
+                    sent = True
+                except Exception:
+                    sent = False
             if not sent:
                 await message.answer(video_url)
             else:
