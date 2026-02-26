@@ -2,9 +2,10 @@
 
 import asyncio
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.core.config import settings
 from app.core.logger import logger
+from app.core.security import require_api_key
 
 # Pilih SSO manager berdasarkan konfigurasi
 if settings.REDIS_ENABLED:
@@ -18,7 +19,7 @@ if settings.REDIS_ENABLED:
 else:
     from app.services.sso_manager import sso_manager
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 @router.get("/status")
@@ -83,14 +84,37 @@ async def list_images(limit: int = 50):
     """Menampilkan daftar gambar yang di-cache"""
     images = []
     if settings.IMAGES_DIR.exists():
-        files = sorted(settings.IMAGES_DIR.glob("*.jpg"), key=lambda x: x.stat().st_mtime, reverse=True)
-        for f in files[:limit]:
+        files = sorted(settings.IMAGES_DIR.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)
+        for f in files:
+            if f.suffix.lower() not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+                continue
             images.append({
                 "filename": f.name,
                 "url": f"{settings.get_base_url()}/images/{f.name}",
                 "size": f.stat().st_size
             })
+            if len(images) >= limit:
+                break
     return {"images": images, "count": len(images)}
+
+
+@router.get("/videos/list")
+async def list_videos(limit: int = 50):
+    """Menampilkan daftar video yang di-cache"""
+    videos = []
+    if settings.VIDEOS_DIR.exists():
+        files = sorted(settings.VIDEOS_DIR.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)
+        for f in files:
+            if f.suffix.lower() not in {".mp4", ".webm", ".mov", ".mkv"}:
+                continue
+            videos.append({
+                "filename": f.name,
+                "url": f"{settings.get_base_url()}/videos/{f.name}",
+                "size": f.stat().st_size
+            })
+            if len(videos) >= limit:
+                break
+    return {"videos": videos, "count": len(videos)}
 
 
 @router.delete("/images/clear")

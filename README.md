@@ -20,6 +20,13 @@ Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan Gr
 - Multi-SSO rotation strategy + retry/fallback
 - Dukungan proxy HTTP/HTTPS/SOCKS5
 - Dukungan Redis (opsional) untuk status rotasi SSO
+- Telegram bot modular (`bot/`) dengan UI tombol untuk image/video/admin/SSO
+  - Generate image/video via tombol
+  - Kirim hasil media langsung ke Telegram (bukan link, fallback ke link jika perlu)
+  - Admin media manager (list + delete image/video cache)
+  - Admin Panel bisa langsung `Add SSO Key`
+  - Flow `Add SSO Key` punya tombol `Cancel`
+  - Limit harian user biasa + menu `My Limit` (admin tetap unlimited)
 
 ## Requirement
 
@@ -57,12 +64,109 @@ CF_CLEARANCE=your-cf-clearance
 - `PROXY_URL` / `HTTP_PROXY` / `HTTPS_PROXY` : proxy opsional
 - `SSO_ROTATION_STRATEGY` : `round_robin|least_used|least_recent|weighted|hybrid`
 - `SSO_DAILY_LIMIT` : limit harian penggunaan key
+- `TELEGRAM_BOT_TOKEN` : token bot Telegram
+- `BOT_ADMIN_IDS` : daftar user id admin bot (contoh: `12345,67890`)
+- `GATEWAY_BASE_URL` : base URL API gateway untuk bot (default `http://127.0.0.1:9563`)
+- `GATEWAY_API_KEY` : API key gateway yang dipakai bot
+- `USER_DAILY_IMAGE_LIMIT` : limit harian generate image untuk user biasa (default `5`)
+- `USER_DAILY_VIDEO_LIMIT` : limit harian generate video untuk user biasa (default `1`)
+
+Alias yang juga didukung:
+
+- Token bot: `BOT_TOKEN`, `TG_BOT_TOKEN`
+- Admin IDs: `ADMIN_ID`, `ADMIN_IDS`, `TELEGRAM_ADMIN_IDS`
+- API key bot: jika `GATEWAY_API_KEY` kosong, nilai `API_KEY` tetap terbaca lewat alias
 
 ## Menjalankan Server
 
 ```bash
 python main.py
 ```
+
+## Menjalankan di Windows (PowerShell)
+
+1. Buat dan aktifkan virtual environment:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+2. Install dependensi:
+
+```powershell
+pip install -r requirements.txt
+```
+
+3. Jalankan gateway:
+
+```powershell
+python main.py
+```
+
+4. (Opsional, terminal lain) Jalankan bot:
+
+```powershell
+python -m bot.main
+```
+
+## Menjalankan di Linux
+
+1. Buat dan aktifkan virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install dependensi:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Jalankan gateway:
+
+```bash
+python main.py
+```
+
+4. (Opsional, terminal lain) Jalankan bot:
+
+```bash
+python -m bot.main
+```
+
+## Menjalankan Telegram Bot
+
+Pastikan `.env` sudah berisi:
+
+```env
+TELEGRAM_BOT_TOKEN=isi_dari_botfather
+BOT_ADMIN_IDS=123456789
+GATEWAY_BASE_URL=http://127.0.0.1:9563
+GATEWAY_API_KEY=your-api-key
+USER_DAILY_IMAGE_LIMIT=5
+USER_DAILY_VIDEO_LIMIT=1
+```
+
+Jalankan bot:
+
+```bash
+python -m bot.main
+```
+
+Rekomendasi production:
+
+- Isi `BOT_ADMIN_IDS` agar hanya admin yang bisa akses panel admin/SSO.
+- Gunakan `GATEWAY_API_KEY` yang sama dengan `API_KEY` gateway.
+- Jalankan bot sebagai service terpisah (systemd/pm2/supervisor) agar auto-restart saat crash.
+
+Fitur bot terbaru:
+
+- Menu `My Limit` untuk cek sisa limit harian user.
+- Admin Panel mendukung `Add SSO Key` langsung dari menu admin.
+- Saat flow input key SSO, tersedia tombol `Cancel` untuk kembali ke menu sebelumnya.
 
 Akses:
 
@@ -75,6 +179,7 @@ Akses:
 ## Autentikasi (Swagger & API)
 
 Semua endpoint `/v1/*` menggunakan Bearer auth saat `API_KEY` di-set.
+Endpoint `/admin/*` juga menggunakan Bearer auth saat `API_KEY` di-set.
 
 Header:
 
@@ -139,6 +244,8 @@ curl -X POST http://127.0.0.1:9563/v1/chat/completions \
 - `POST /v1/videos/generations` : generate video
 - `POST /v1/chat/completions` : chat-compatible image generation
 - `GET /admin/status` : status service/admin
+- `GET /admin/images/list` : list image cache
+- `GET /admin/videos/list` : list video cache
 - `DELETE /admin/media/image/{filename}` : hapus image by file
 - `DELETE /admin/media/video/{filename}` : hapus video by file
 

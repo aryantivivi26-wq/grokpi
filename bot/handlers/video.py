@@ -1,0 +1,244 @@
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, FSInputFile, Message
+
+from ..client import gateway_client
+from ..keyboards import main_menu_keyboard, video_menu_keyboard
+from ..security import is_admin
+from ..states import VideoFlow
+from ..ui import safe_edit_text
+from ..user_limit_manager import user_limit_manager
+
+router = Router()
+ROOT_DIR = Path(__file__).resolve().parents[2]
+VIDEOS_DIR = ROOT_DIR / "data" / "videos"
+
+
+def _resolve_local_video_path(url: str) -> Path | None:
+    try:
+        parsed = urlparse(url)
+        filename = Path(unquote(parsed.path)).name
+    except Exception:
+        return None
+    if not filename:
+        return None
+    file_path = VIDEOS_DIR / filename
+    if file_path.exists() and file_path.is_file():
+        return file_path
+    return None
+
+
+def _video_settings_text(aspect: str, duration: int, resolution: str, preset: str) -> str:
+    return (
+        "🎬 <b>Video Generator</b>\n"
+        f"• Aspect ratio: <b>{aspect}</b>\n"
+        f"• Duration: <b>{duration}s</b>\n"
+        f"• Resolution: <b>{resolution}</b>\n"
+        f"• Preset: <b>{preset}</b>\n\n"
+        "Atur parameter, lalu klik <b>Enter Prompt</b>."
+    )
+
+
+async def _ensure_video_defaults(state: FSMContext) -> tuple[str, int, str, str]:
+    data = await state.get_data()
+    aspect = data.get("vid_aspect", "9:16")
+    duration = data.get("vid_duration", 6)
+    resolution = data.get("vid_resolution", "480p")
+    preset = data.get("vid_preset", "normal")
+    await state.update_data(
+        vid_aspect=aspect,
+        vid_duration=duration,
+        vid_resolution=resolution,
+        vid_preset=preset,
+    )
+    return aspect, duration, resolution, preset
+
+
+@router.callback_query(F.data == "menu:video")
+async def open_video_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    aspect, duration, resolution, preset = await _ensure_video_defaults(state)
+    await safe_edit_text(
+        callback.message,
+        _video_settings_text(aspect, duration, resolution, preset),
+        reply_markup=video_menu_keyboard(aspect, duration, resolution, preset),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("vid:aspect:"))
+async def set_video_aspect(callback: CallbackQuery, state: FSMContext) -> None:
+    aspect = callback.data.replace("vid:aspect:", "", 1)
+    current_aspect, duration, resolution, preset = await _ensure_video_defaults(state)
+    if current_aspect == aspect:
+        await callback.answer("Aspect ratio sudah aktif")
+        return
+    await state.update_data(vid_aspect=aspect)
+    await safe_edit_text(
+        callback.message,
+        _video_settings_text(aspect, duration, resolution, preset),
+        reply_markup=video_menu_keyboard(aspect, duration, resolution, preset),
+    )
+    await callback.answer("Aspect ratio diubah")
+
+
+@router.callback_query(F.data.startswith("vid:duration:"))
+async def set_video_duration(callback: CallbackQuery, state: FSMContext) -> None:
+    duration = int(callback.data.replace("vid:duration:", "", 1))
+    aspect, current_duration, resolution, preset = await _ensure_video_defaults(state)
+    if current_duration == duration:
+        await callback.answer("Duration sudah aktif")
+        return
+    await state.update_data(vid_duration=duration)
+    await safe_edit_text(
+        callback.message,
+        _video_settings_text(aspect, duration, resolution, preset),
+        reply_markup=video_menu_keyboard(aspect, duration, resolution, preset),
+    )
+    await callback.answer("Duration diubah")
+
+
+@router.callback_query(F.data.startswith("vid:resolution:"))
+async def set_video_resolution(callback: CallbackQuery, state: FSMContext) -> None:
+    resolution = callback.data.replace("vid:resolution:", "", 1)
+    aspect, duration, current_resolution, preset = await _ensure_video_defaults(state)
+    if current_resolution == resolution:
+        await callback.answer("Resolution sudah aktif")
+        return
+    await state.update_data(vid_resolution=resolution)
+    await safe_edit_text(
+        callback.message,
+        _video_settings_text(aspect, duration, resolution, preset),
+        reply_markup=video_menu_keyboard(aspect, duration, resolution, preset),
+    )
+    await callback.answer("Resolution diubah")
+
+
+@router.callback_query(F.data.startswith("vid:preset:"))
+async def set_video_preset(callback: CallbackQuery, state: FSMContext) -> None:
+    preset = callback.data.replace("vid:preset:", "", 1)
+    aspect, duration, resolution, current_preset = await _ensure_video_defaults(state)
+    if current_preset == preset:
+        await callback.answer("Preset sudah aktif")
+        return
+    await state.update_data(vid_preset=preset)
+    await safe_edit_text(
+        callback.message,
+        _video_settings_text(aspect, duration, resolution, preset),
+        reply_markup=video_menu_keyboard(aspect, duration, resolution, preset),
+    )
+    await callback.answer("Preset diubah")
+
+
+@router.callback_query(F.data == "vid:prompt")
+async def ask_video_prompt(callback: CallbackQuery, state: FSMContext) -> None:
+    user_id = callback.from_user.id if callback.from_user else 0
+    admin_user = is_admin(user_id)
+    allowed, status = await user_limit_manager.can_consume(
+        user_id,
+        video_units=1,
+        is_admin_user=admin_user,
+    )
+    if not allowed:
+        await callback.answer("Limit video harian habis", show_alert=True)
+        await safe_edit_text(
+            callback.message,
+            (
+                "❌ <b>Limit video harian habis</b>\n"
+                f"Sisa video hari ini: <b>{status['videos_remaining']}</b>\n"
+                "Cek menu <b>My Limit</b> untuk detail."
+            ),
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
+    await state.set_state(VideoFlow.waiting_prompt)
+    await safe_edit_text(callback.message, "Kirim prompt video sekarang.")
+    await callback.answer()
+
+
+@router.message(VideoFlow.waiting_prompt)
+async def handle_video_prompt(message: Message, state: FSMContext) -> None:
+    prompt = (message.text or "").strip()
+    if not prompt:
+        await message.answer("Prompt tidak boleh kosong. Kirim ulang.")
+        return
+
+    user_id = message.from_user.id if message.from_user else 0
+    admin_user = is_admin(user_id)
+    allowed, status = await user_limit_manager.can_consume(
+        user_id,
+        video_units=1,
+        is_admin_user=admin_user,
+    )
+    if not allowed:
+        await state.clear()
+        await message.answer(
+            (
+                "❌ Limit video harian habis.\n"
+                f"Sisa video hari ini: {status['videos_remaining']}"
+            )
+        )
+        await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+        return
+
+    aspect, duration, resolution, preset = await _ensure_video_defaults(state)
+    wait_msg = await message.answer("⏳ Sedang generate video... proses bisa lebih lama")
+
+    try:
+        payload = await gateway_client.generate_video(
+            prompt=prompt,
+            aspect_ratio=aspect,
+            duration_seconds=duration,
+            resolution=resolution,
+            preset=preset,
+        )
+        data = payload.get("data", [])
+        item = data[0] if data else {}
+        video_url = item.get("video_url") or item.get("url")
+
+        if not video_url:
+            await wait_msg.edit_text(f"Gagal: response kosong\n{payload}")
+        else:
+            try:
+                await wait_msg.delete()
+            except Exception:
+                pass
+            sent = False
+            local_path = _resolve_local_video_path(video_url)
+            if local_path:
+                try:
+                    await message.answer_video(video=FSInputFile(str(local_path)))
+                    sent = True
+                except Exception:
+                    sent = False
+            if sent:
+                await user_limit_manager.consume(
+                    user_id,
+                    video_units=1,
+                    is_admin_user=admin_user,
+                )
+                await state.clear()
+                await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+                return
+            try:
+                await message.answer_video(video=video_url)
+                sent = True
+            except Exception:
+                sent = False
+            if not sent:
+                await message.answer(video_url)
+            else:
+                await user_limit_manager.consume(
+                    user_id,
+                    video_units=1,
+                    is_admin_user=admin_user,
+                )
+    except Exception as exc:
+        await wait_msg.edit_text(f"❌ Generate video gagal: {exc}")
+
+    await state.clear()
+    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
