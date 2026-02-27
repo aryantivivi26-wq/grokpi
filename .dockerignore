@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Virtual env
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets
+.env
+key.txt
+sso_state.json
+
+# Generated data (use volumes)
+data/images/*
+data/videos/*
+*.db
+*.db-shm
+*.db-wal
+
+# Git
+.git/
+.gitignore
+
+# Reference source (not needed in image)
+g2pi-main/
+
+# Misc
+*.md
+!README.md
+LICENSE
+scripts/

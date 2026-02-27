@@ -1,34 +1,37 @@
-# GrokPi — Grok Image/Video API Gateway + Telegram Bot
+# GrokPi — Multi-Backend AI Image/Video API Gateway + Telegram Bot
 
-Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan Grok, dilengkapi **Telegram Bot** dengan fitur subscription, payment QRIS, referral, leaderboard, dan lainnya.
+Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **Grok (xAI)** dan **Gemini Business (Google)**, dilengkapi **Telegram Bot** dengan fitur subscription, payment QRIS, referral, leaderboard, dan lainnya.
 
 ---
 
 ## Fitur Utama
 
+### Multi-Backend AI
+- **⚡ Grok** — Image & Video generation via xAI WebSocket
+- **💎 Gemini Business** — Image & Video generation via Google Discovery Engine
+- Toggle model dari bot: `🤖 Model: ⚡ Grok` / `🤖 Model: 💎 Gemini`
+- Prefix routing: `grok-*` → Grok, `gemini-*` → Gemini
+
 ### Gateway API
-- `POST /v1/images/generations` — Generate gambar
-- `POST /v1/videos/generations` — Generate video
-- `POST /v1/chat/completions` — Chat completion
-- Auto CF_CLEARANCE via FlareSolverr (untuk video)
-- Auto download media ke cache lokal (`data/images`, `data/videos`)
-- Gallery modern: `/gallery` (image), `/video-gallery` (video)
+- `POST /v1/images/generations` — Generate gambar (Grok / Gemini Imagen)
+- `POST /v1/videos/generations` — Generate video (Grok / Gemini Veo)
+- `POST /v1/chat/completions` — Chat completion (Gemini)
+- `GET /v1/models` — List semua model (10 model)
+- Auto CF_CLEARANCE via FlareSolverr (untuk Grok video)
+- Auto download media ke cache lokal
 - Multi-SSO rotation + retry/fallback
 - QRIS webhook: `POST /webhook/qris`
 
 ### Telegram Bot
-- 🖼 Generate image via tombol (batch prompt support)
+- 🖼 Generate image via tombol (batch prompt untuk Grok)
 - 🎬 Generate video via tombol
+- 🤖 Pilih model Grok / Gemini (persistent per user)
 - 💎 Subscription system (Free / Basic / Premium)
 - 💳 Pembayaran QRIS otomatis (Hubify)
 - 📦 Topup kuota extra (tidak expired)
 - 🔗 Referral program (+10 bonus image)
 - 🎁 Trial Premium 12 jam untuk user baru
 - 🏆 Leaderboard generator bulanan
-- ⏰ Notifikasi expiry subscription (H-24h & H-1h)
-- ⏱ Rate limiting per tier (Free 30s, Basic 15s, Premium 5s)
-- 👥 Admin panel: user management, broadcast, bot stats
-- 📈 My Limit: cek sisa kuota harian + extra
 
 ---
 
@@ -49,31 +52,134 @@ Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan Gr
            ▼
 ┌───────────────────────┐     ┌──────────────┐
 │   Gateway (FastAPI)   │────▶│ FlareSolverr │
-│   (python main.py)    │     │  (Docker)    │
 │   port 9563           │     │  port 8191   │
-└──────────┬────────────┘     └──────────────┘
-           │ WSS / HTTPS
-           ▼
-┌───────────────────────┐
-│   grok.com API        │
+│   ┌─────────────────┐ │     └──────────────┘
+│   │ BackendRouter   │ │
+│   │  ├─ GrokClient  │─┼──▶ grok.com (WSS/HTTPS)
+│   │  └─ GeminiClient│─┼──▶ business.gemini.google (HTTPS)
+│   └─────────────────┘ │
 └───────────────────────┘
+```
+
+### Model yang Tersedia
+
+| Model | Backend | Tipe |
+|-------|---------|------|
+| `grok-imagine` | Grok | Image |
+| `grok-2-image` | Grok | Image |
+| `grok-2-video` | Grok | Video |
+| `gemini-auto` | Gemini | Chat |
+| `gemini-2.5-flash` | Gemini | Chat |
+| `gemini-2.5-pro` | Gemini | Chat |
+| `gemini-3-flash-preview` | Gemini | Chat |
+| `gemini-3.1-pro-preview` | Gemini | Chat |
+| `gemini-imagen` | Gemini | Image |
+| `gemini-veo` | Gemini | Video |
+
+---
+
+## Quick Start — Docker Compose
+
+Cara paling cepat untuk deploy, baik di VPS maupun lokal.
+
+### 1. Clone & Configure
+
+```bash
+git clone https://github.com/aryantivivi26-wq/grokpi.git
+cd grokpi
+cp .env.example .env
+nano .env   # Isi semua variabel yang diperlukan
+```
+
+### 2. SSO Token Grok
+
+```bash
+# Ambil dari grok.com → DevTools → Cookies → "sso"
+echo "SSO_TOKEN_KAMU" > key.txt
+```
+
+### 3. Jalankan
+
+```bash
+docker compose up -d
+```
+
+Selesai! Gateway jalan di `http://localhost:9563`, bot otomatis nyala.
+
+```bash
+# Verifikasi
+curl http://localhost:9563/health
+curl http://localhost:9563/v1/models
+docker compose logs -f
 ```
 
 ---
 
-## Requirement
+## Deploy via Coolify
 
-- **OS**: Ubuntu 20.04+ / Debian 11+
-- **Python**: 3.10+
-- **Docker**: Untuk FlareSolverr
-- **VPS minimal**: 2 vCPU, 2 GB RAM, 10 GB disk (rekomendasi 4 GB RAM)
-- **Domain** (opsional): Untuk webhook QRIS via reverse proxy
+### 1. Di Coolify Dashboard
+
+1. **New Resource** → **Docker Compose** (atau **Dockerfile**)
+2. Connect **GitHub repo**: `aryantivivi26-wq/grokpi`
+3. Branch: `main`
+4. Build Pack: **Docker Compose** (pakai `docker-compose.yml`)
+
+### 2. Environment Variables
+
+Di tab **Environment**, tambahkan semua variabel dari `.env.example`:
+
+```env
+# Wajib
+API_KEY=api-key-kamu
+TELEGRAM_BOT_TOKEN=123456:ABC...
+BOT_ADMIN_IDS=1269254705
+SSO_COOKIE=sso_token_grok_kamu
+
+# Gemini (opsional)
+GEMINI_ENABLED=true
+GEMINI_ACCOUNTS_CONFIG=[{"secure_c_ses":"...","csesidx":"...","config_id":"..."}]
+
+# Internal (jangan diubah)
+GATEWAY_BASE_URL=http://127.0.0.1:9563
+FLARESOLVERR_URL=http://flaresolverr:8191
+GATEWAY_API_KEY=api-key-kamu
+```
+
+> **Catatan**: `SSO_COOKIE` otomatis ditulis ke `key.txt` saat container start. Jadi kamu tidak perlu mount file.
+
+### 3. Ports & Volumes
+
+- Expose port: `9563` (atau sesuai `PORT`)
+- Coolify otomatis manage volumes dari `docker-compose.yml`
+
+### 4. Deploy
+
+Klik **Deploy**. Coolify akan build image dan jalankan container.
+
+```bash
+# Health check
+curl https://your-coolify-domain/health
+```
+
+### 5. Custom Domain (Opsional)
+
+Di Coolify, tambahkan domain di tab **Domains** untuk akses HTTPS otomatis (Traefik/Caddy). Domain ini juga bisa dipakai untuk webhook QRIS:
+
+```
+https://grokpi.yourdomain.com/webhook/qris
+```
 
 ---
 
-## Setup VPS Lengkap (Ubuntu)
+## Deploy Manual (VPS tanpa Docker)
 
-### Step 1: Update & Install Dependencies
+### Requirements
+
+- **OS**: Ubuntu 20.04+ / Debian 11+
+- **Python**: 3.10+
+- **Docker**: Untuk FlareSolverr (opsional, hanya untuk Grok video)
+
+### Step 1: Install Dependencies
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -132,15 +238,30 @@ curl -s http://localhost:8191/ | python3 -m json.tool
 echo "PASTE_SSO_TOKEN_DISINI" > key.txt
 ```
 
-> SSO token tahan berbulan-bulan, cukup ambil sekali.
+### Step 7: Setup Gemini Business (Opsional)
 
-### Step 7: Buat Telegram Bot
+1. Buka [business.gemini.google](https://business.gemini.google) di browser, **login**
+2. DevTools (`F12`) → **Application** → **Cookies**
+3. Copy:
+   - `__Secure-C_SES` → `secure_c_ses`
+   - `__Host-C_OSES` → `host_c_oses`
+4. Dari URL: `business.gemini.google/app/cid/CONFIG_ID?csesidx=CSESIDX`
+   - Path setelah `/cid/` → `config_id`
+   - Parameter `csesidx` → `csesidx`
+5. Di `.env`, tambahkan:
+
+```env
+GEMINI_ENABLED=true
+GEMINI_ACCOUNTS_CONFIG=[{"secure_c_ses":"...","host_c_oses":"...","csesidx":"1234","config_id":"uuid-here"}]
+```
+
+### Step 8: Buat Telegram Bot
 
 1. Chat [@BotFather](https://t.me/BotFather) di Telegram
 2. `/newbot` → ikuti instruksi → dapatkan **BOT_TOKEN**
 3. Chat [@userinfobot](https://t.me/userinfobot) → dapatkan **Telegram User ID** kamu (untuk admin)
 
-### Step 8: Konfigurasi `.env`
+### Step 9: Konfigurasi `.env`
 
 ```bash
 cp .env.example .env
@@ -169,6 +290,10 @@ BOT_ADMIN_IDS=123456789
 GATEWAY_BASE_URL=http://127.0.0.1:9563
 GATEWAY_API_KEY=ganti-dengan-api-key-rahasia
 
+# ============ Gemini Business (Opsional) ============
+GEMINI_ENABLED=false
+GEMINI_ACCOUNTS_CONFIG=
+
 # ============ QRIS Payment (Hubify) ============
 QRIS_API_KEY=sk_xxxxxxxx
 QRIS_WEBHOOK_SECRET=whsec_xxxxxxxx
@@ -177,7 +302,7 @@ QRIS_POLL_INTERVAL=10
 QRIS_POLL_TIMEOUT=900
 ```
 
-### Step 9: Jalankan dengan systemd (Production)
+### Step 10: Jalankan dengan systemd (Production)
 
 **Service Gateway:**
 
@@ -241,7 +366,7 @@ sudo journalctl -u grokpi-gateway -f   # live log gateway
 sudo journalctl -u grokpi-bot -f       # live log bot
 ```
 
-### Step 10: Verifikasi
+### Step 11: Verifikasi
 
 ```bash
 # Health check
@@ -543,6 +668,8 @@ Video generation berhasil!
 | `PROXY_URL` | _(kosong)_ | HTTP/SOCKS5 proxy |
 | `SSO_ROTATION_STRATEGY` | `hybrid` | round_robin / least_used / hybrid dll |
 | `SSO_DAILY_LIMIT` | `10` | Limit per key per 24 jam |
+| `GEMINI_ENABLED` | `false` | Aktifkan Gemini backend |
+| `GEMINI_ACCOUNTS_CONFIG` | _(kosong)_ | JSON array config akun Gemini |
 | `TELEGRAM_BOT_TOKEN` | _(kosong)_ | Token bot dari BotFather |
 | `BOT_ADMIN_IDS` | _(kosong)_ | Telegram user ID admin (pisahkan koma) |
 | `GATEWAY_BASE_URL` | `http://127.0.0.1:9563` | URL gateway untuk bot |
@@ -552,6 +679,7 @@ Video generation berhasil!
 | `QRIS_BASE_URL` | `https://qris.hubify.store/api` | Base URL API QRIS |
 | `QRIS_POLL_INTERVAL` | `10` | Interval poll status pembayaran (detik) |
 | `QRIS_POLL_TIMEOUT` | `900` | Timeout polling (15 menit) |
+| `SSO_COOKIE` | _(kosong)_ | SSO token via env (Docker/Coolify) |
 
 ---
 
@@ -598,11 +726,13 @@ sudo journalctl -u grokpi-bot --since today
 | Problem | Solusi |
 |---------|--------|
 | Video gagal 403 Cloudflare | Pastikan FlareSolverr jalan: `docker ps` & `curl localhost:8191` |
-| Bot tidak respond | Cek token: `sudo journalctl -u grokpi-bot -f` |
-| QRIS webhook tidak masuk | Pastikan port 9563 terbuka atau gunakan reverse proxy + domain |
+| Gemini 401/403 | Cookie expired — ambil ulang `__Secure-C_SES` dari browser |
+| Gemini image lama (~2 menit) | Normal, Google image generation memang lambat |
+| Bot tidak respond | Cek token: `docker compose logs -f grokpi` |
+| Model tidak berubah di bot | Klik 🤖 Model di menu, pilih Gemini/Grok |
+| QRIS webhook tidak masuk | Pastikan port terbuka atau gunakan reverse proxy + domain |
 | Database corrupt | Backup lalu hapus: `cp bot.db bot.db.bak && rm bot.db` lalu restart |
 | cf_clearance expired | Restart FlareSolverr: `docker restart flaresolverr` |
-| Trial tidak muncul | Hanya untuk user baru (pertama kali /start). Cek: `sqlite3 bot.db "SELECT trial_used FROM users WHERE user_id=XXX"` |
 
 ---
 
@@ -610,17 +740,33 @@ sudo journalctl -u grokpi-bot --since today
 
 ```
 grokpi/
+├── Dockerfile               # Docker image build
+├── docker-compose.yml       # Docker Compose (Gateway + FlareSolverr)
+├── entrypoint.sh            # Container entrypoint (gateway + bot)
 ├── main.py                  # FastAPI gateway entry
 ├── bot.db                   # SQLite database (auto-created)
 ├── key.txt                  # SSO token(s)
 ├── .env                     # Konfigurasi
+├── .env.example             # Template konfigurasi
 ├── requirements.txt
 ├── app/
 │   ├── api/
-│   │   ├── admin.py         # Admin API endpoints
 │   │   ├── chat.py          # Chat completion endpoint
 │   │   ├── imagine.py       # Image/video generation endpoints
+│   │   ├── admin.py         # Admin API endpoints
 │   │   └── webhook.py       # QRIS webhook handler
+│   ├── backends/
+│   │   ├── base.py          # BackendClient ABC
+│   │   ├── router.py        # BackendRouter (prefix routing)
+│   │   ├── grok/
+│   │   │   └── client.py    # GrokBackendClient wrapper
+│   │   └── gemini/
+│   │       ├── client.py    # GeminiBackendClient
+│   │       ├── jwt_manager.py   # JWT HMAC-SHA256
+│   │       ├── google_api.py    # Discovery Engine API
+│   │       ├── account.py       # Multi-account manager
+│   │       ├── message.py       # Context builder
+│   │       └── streaming_parser.py  # Google JSON parser
 │   ├── core/
 │   │   ├── config.py        # Gateway settings
 │   │   ├── logger.py
@@ -634,6 +780,7 @@ grokpi/
 │   ├── config.py            # Bot settings
 │   ├── database.py          # SQLite layer (7 tables)
 │   ├── keyboards.py         # Inline keyboard definitions
+│   ├── ui.py                # UI helpers (clear_state, get_backend)
 │   ├── states.py            # FSM states
 │   ├── rate_limiter.py      # Tier-based cooldowns
 │   ├── subscription_manager.py  # Subscription logic
@@ -641,7 +788,7 @@ grokpi/
 │   ├── payment_client.py    # QRIS Hubify API client
 │   ├── cleanup_scheduler.py # Midnight cleanup + reminder
 │   └── handlers/
-│       ├── common.py        # /start, /help, /cancel, /admin
+│       ├── common.py        # /start, /help, /cancel, model toggle
 │       ├── image.py         # Image generation
 │       ├── video.py         # Video generation
 │       ├── subscription.py  # Subscription management

@@ -1,0 +1,37 @@
+services:
+  grokpi:
+    build: .
+    container_name: grokpi
+    restart: unless-stopped
+    ports:
+      - "${PORT:-9563}:${PORT:-9563}"
+    env_file: .env
+    environment:
+      - GATEWAY_BASE_URL=http://127.0.0.1:${PORT:-9563}
+      - FLARESOLVERR_URL=http://flaresolverr:8191
+    volumes:
+      - grokpi-data:/app/data
+      - grokpi-db:/app/db
+      - ./key.txt:/app/key.txt:ro
+    depends_on:
+      flaresolverr:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:${PORT:-9563}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+    # Uncomment to expose FlareSolverr port externally
+    # ports:
+    #   - "8191:8191"
+
+volumes:
+  grokpi-data:
+  grokpi-db:
