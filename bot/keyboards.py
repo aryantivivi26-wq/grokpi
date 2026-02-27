@@ -92,11 +92,23 @@ def video_menu_keyboard(aspect: str, duration: int, resolution: str, preset: str
 def admin_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Service Status", callback_data="admin:status")],
+            [
+                InlineKeyboardButton(text="👥 Users", callback_data="adm:users"),
+                InlineKeyboardButton(text="💎 Subscribers", callback_data="adm:subs"),
+            ],
+            [
+                InlineKeyboardButton(text="📢 Broadcast", callback_data="adm:broadcast"),
+                InlineKeyboardButton(text="📊 Bot Stats", callback_data="adm:stats"),
+            ],
+            [
+                InlineKeyboardButton(text="🖼 Images", callback_data="admin:images"),
+                InlineKeyboardButton(text="🎬 Videos", callback_data="admin:videos"),
+            ],
+            [
+                InlineKeyboardButton(text="📡 Gateway", callback_data="admin:status"),
+                InlineKeyboardButton(text="🔄 Reload SSO", callback_data="admin:reload_sso"),
+            ],
             [InlineKeyboardButton(text="➕ Add SSO Key", callback_data="admin:add_key")],
-            [InlineKeyboardButton(text="🔄 Reload SSO", callback_data="admin:reload_sso")],
-            [InlineKeyboardButton(text="🖼 Manage Images", callback_data="admin:images")],
-            [InlineKeyboardButton(text="🎬 Manage Videos", callback_data="admin:videos")],
             [InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")],
             [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
         ]
@@ -291,5 +303,85 @@ def pay_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Kembali", callback_data="menu:subs")],
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Admin user management keyboards
+# ---------------------------------------------------------------------------
+
+def admin_users_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """Paginated user list keyboard."""
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️ Prev", callback_data=f"adm:users:p:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="Next ▶️", callback_data=f"adm:users:p:{page + 1}"))
+
+    rows = []
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="🔍 Cari User (ID)", callback_data="adm:user:search")])
+    rows.append([InlineKeyboardButton(text="⬅️ Back Admin", callback_data="menu:admin")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_user_detail_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Actions for a specific user."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="➕ Assign Sub", callback_data=f"adm:usub:grant:{user_id}"),
+                InlineKeyboardButton(text="🗑 Revoke Sub", callback_data=f"adm:usub:revoke:{user_id}"),
+            ],
+            [InlineKeyboardButton(text="🗑 Hapus User", callback_data=f"adm:user:del:{user_id}")],
+            [InlineKeyboardButton(text="⬅️ Back Users", callback_data="adm:users")],
+        ]
+    )
+
+
+def admin_user_del_confirm_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Ya, Hapus", callback_data=f"adm:user:delok:{user_id}"),
+                InlineKeyboardButton(text="❌ Batal", callback_data=f"adm:user:view:{user_id}"),
+            ],
+        ]
+    )
+
+
+def broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Kirim", callback_data="adm:bc:send"),
+                InlineKeyboardButton(text="❌ Batal", callback_data="menu:admin"),
+            ],
+        ]
+    )
+
+
+def admin_assign_tier_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⭐ Basic", callback_data=f"adm:usub:t:{user_id}:basic"),
+                InlineKeyboardButton(text="💎 Premium", callback_data=f"adm:usub:t:{user_id}:premium"),
+            ],
+            [InlineKeyboardButton(text="❌ Batal", callback_data=f"adm:user:view:{user_id}")],
+        ]
+    )
+
+
+def admin_assign_dur_keyboard(user_id: int, tier: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📅 1 Hari", callback_data=f"adm:usub:d:{user_id}:{tier}:daily")],
+            [InlineKeyboardButton(text="📅 7 Hari", callback_data=f"adm:usub:d:{user_id}:{tier}:weekly")],
+            [InlineKeyboardButton(text="📅 30 Hari", callback_data=f"adm:usub:d:{user_id}:{tier}:monthly")],
+            [InlineKeyboardButton(text="❌ Batal", callback_data=f"adm:user:view:{user_id}")],
         ]
     )

@@ -6,6 +6,7 @@ from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from .. import database as db
 from ..keyboards import admin_menu_keyboard, main_menu_keyboard, sso_menu_keyboard
 from ..security import is_admin
 from ..subscription_manager import (
@@ -36,6 +37,13 @@ async def cmd_start(message: Message) -> None:
     username = f"@{user.username}" if user and user.username else "-"
     now = datetime.now()
 
+    # Track user in database
+    await db.upsert_user(
+        user_id=user_id,
+        first_name=user.first_name if user else "",
+        username=user.username if user and user.username else "",
+    )
+
     # Subscription info
     sub = await subscription_manager.get_subscription(user_id)
     tier = Tier(sub.tier) if sub.tier in [t.value for t in Tier] else Tier.FREE
@@ -45,6 +53,9 @@ async def cmd_start(message: Message) -> None:
     # Usage info
     admin_user = is_admin(user_id)
     status = await user_limit_manager.get_status(user_id, is_admin_user=admin_user)
+
+    # Bot stats
+    stats = await db.get_bot_stats()
 
     # Build welcome text
     lines = [
@@ -91,6 +102,12 @@ async def cmd_start(message: Message) -> None:
         lines.append(f"├ Image: <b>{img_txt}</b>")
         lines.append(f"├ Video: <b>{vid_txt}</b>")
         lines.append(f"└ Reset: <b>00:00 WIB</b>\n")
+
+    # Bot statistics
+    lines.append("🤖 <b>Bot Stats:</b>")
+    lines.append(f"├ Total User: <b>{stats['total_users']}</b>")
+    lines.append(f"├ Subscriber Aktif: <b>{stats['active_subs']}</b>")
+    lines.append(f"└ Aktif Hari Ini: <b>{stats['active_today']}</b>\n")
 
     lines.append("📌 <b>Shortcuts:</b>")
     lines.append("├ /start — Buka menu utama")

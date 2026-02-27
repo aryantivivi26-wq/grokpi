@@ -50,6 +50,14 @@ async def close_db() -> None:
 
 async def _init_tables(db: aiosqlite.Connection) -> None:
     await db.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id     INTEGER PRIMARY KEY,
+            first_name  TEXT    NOT NULL DEFAULT '',
+            username    TEXT    NOT NULL DEFAULT '',
+            first_seen  REAL    NOT NULL DEFAULT 0,
+            last_seen   REAL    NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS subscriptions (
             user_id     INTEGER PRIMARY KEY,
             tier        TEXT    NOT NULL DEFAULT 'free',
@@ -84,6 +92,116 @@ async def _init_tables(db: aiosqlite.Connection) -> None:
             ON payments (transaction_id);
     """)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Users
+# ---------------------------------------------------------------------------
+
+async def upsert_user(user_id: int, first_name: str = "", username: str = "") -> None:
+    """Insert or update a user record (called on every /start)."""
+    db = await get_db()
+    now = time.time()
+    await db.execute(
+        """
+        INSERT INTO users (user_id, first_name, username, first_seen, last_seen)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            first_name = excluded.first_name,
+            username   = excluded.username,
+            last_seen  = excluded.last_seen
+        """,
+        (user_id, first_name, username, now, now),
+    )
+    await db.commit()
+
+
+async def get_user(user_id: int) -> Optional[Dict[str, Any]]:
+    db = await get_db()
+    async with db.execute(
+        "SELECT user_id, first_name, username, first_seen, last_seen FROM users WHERE user_id = ?",
+        (user_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return None
+    return {k: row[k] for k in row.keys()}
+
+
+async def get_all_user_ids() -> List[int]:
+    """Return all user IDs (for broadcast)."""
+    db = await get_db()
+    ids = []
+    async with db.execute("SELECT user_id FROM users") as cur:
+        async for row in cur:
+            ids.append(row["user_id"])
+    return ids
+
+
+async def list_users(limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    db = await get_db()
+    rows = []
+    async with db.execute(
+        "SELECT user_id, first_name, username, first_seen, last_seen "
+        "FROM users ORDER BY last_seen DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ) as cur:
+        async for row in cur:
+            rows.append({k: row[k] for k in row.keys()})
+    return rows
+
+
+async def count_users() -> int:
+    db = await get_db()
+    async with db.execute("SELECT COUNT(*) as cnt FROM users") as cur:
+        row = await cur.fetchone()
+    return row["cnt"] if row else 0
+
+
+async def delete_user(user_id: int) -> bool:
+    """Delete a user and their related data."""
+    db = await get_db()
+    await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+    await db.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+    await db.execute("DELETE FROM daily_usage WHERE user_id = ?", (user_id,))
+    await db.execute("DELETE FROM payments WHERE user_id = ?", (user_id,))
+    await db.commit()
+    return True
+
+
+async def get_bot_stats() -> Dict[str, Any]:
+    """Return aggregate statistics for the bot."""
+    db = await get_db()
+    now = time.time()
+
+    async with db.execute("SELECT COUNT(*) as cnt FROM users") as cur:
+        total_users = (await cur.fetchone())["cnt"]
+
+    async with db.execute(
+        "SELECT COUNT(*) as cnt FROM subscriptions WHERE (expires > ? OR expires = 0) AND tier != 'free'",
+        (now,),
+    ) as cur:
+        active_subs = (await cur.fetchone())["cnt"]
+
+    async with db.execute("SELECT COUNT(*) as cnt FROM payments WHERE status = 'paid'") as cur:
+        total_paid = (await cur.fetchone())["cnt"]
+
+    # Today's active users (from daily_usage)
+    import datetime as _dt
+    wib = _dt.timezone(_dt.timedelta(hours=7))
+    today_key = _dt.datetime.now(wib).strftime("%Y-%m-%d")
+    async with db.execute(
+        "SELECT COUNT(DISTINCT user_id) as cnt FROM daily_usage WHERE date_key = ?",
+        (today_key,),
+    ) as cur:
+        active_today = (await cur.fetchone())["cnt"]
+
+    return {
+        "total_users": total_users,
+        "active_subs": active_subs,
+        "total_paid": total_paid,
+        "active_today": active_today,
+    }
 
 
 # ---------------------------------------------------------------------------
