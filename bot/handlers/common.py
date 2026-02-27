@@ -2,7 +2,7 @@ import time as _time
 from datetime import datetime
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -24,25 +24,63 @@ router = Router()
 
 HOME_TEXT = "🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:"
 
+# Trial duration: 12 hours
+TRIAL_SECONDS = 12 * 3600
+
 
 # ---------------------------------------------------------------------------
-# /start — welcome with user statistics
+# /start — welcome with user statistics + referral + trial
 # ---------------------------------------------------------------------------
 
+@router.message(CommandStart(deep_link=True))
 @router.message(CommandStart())
-async def cmd_start(message: Message) -> None:
+async def cmd_start(message: Message, command: CommandObject = None) -> None:
     user = message.from_user
     user_id = user.id if user else 0
     name = user.first_name if user else "User"
     username = f"@{user.username}" if user and user.username else "-"
     now = datetime.now()
 
-    # Track user in database
-    await db.upsert_user(
+    # Track user in database (returns True if brand new)
+    is_new = await db.upsert_user(
         user_id=user_id,
         first_name=user.first_name if user else "",
         username=user.username if user and user.username else "",
     )
+
+    extra_messages: list[str] = []
+
+    # --- Referral deep link processing ---
+    if command and command.args and command.args.startswith("ref_"):
+        try:
+            referrer_id = int(command.args.replace("ref_", "", 1))
+            if is_new and referrer_id != user_id:
+                from .referral import process_referral
+                ref_msg = await process_referral(user_id, referrer_id)
+                if ref_msg:
+                    extra_messages.append(ref_msg)
+        except (ValueError, TypeError):
+            pass
+
+    # --- Auto-trial for new users (12h Premium) ---
+    if is_new:
+        user_data = await db.get_user(user_id)
+        if user_data and not user_data.get("trial_used", 0):
+            import time
+            trial_expires = time.time() + TRIAL_SECONDS
+            await db.upsert_subscription(
+                user_id=user_id,
+                tier=Tier.PREMIUM.value,
+                expires=trial_expires,
+                granted_by=0,
+                granted_at=time.time(),
+            )
+            await db.mark_trial_used(user_id)
+            extra_messages.append(
+                "🎁 <b>Selamat Datang!</b>\n"
+                "Kamu mendapat <b>💎 Premium Trial 12 Jam</b> gratis!\n"
+                "Nikmati generate tanpa batas selama trial berlaku. 🚀"
+            )
 
     # Subscription info
     sub = await subscription_manager.get_subscription(user_id)
@@ -103,6 +141,14 @@ async def cmd_start(message: Message) -> None:
         lines.append(f"├ Video: <b>{vid_txt}</b>")
         lines.append(f"└ Reset: <b>00:00 WIB</b>\n")
 
+        # Extra quota info
+        extra_img = status.get("extra_images", 0)
+        extra_vid = status.get("extra_videos", 0)
+        if extra_img > 0 or extra_vid > 0:
+            lines.append("📦 <b>Extra Kuota:</b>")
+            lines.append(f"├ Image: <b>{extra_img}</b>")
+            lines.append(f"└ Video: <b>{extra_vid}</b>\n")
+
     # Bot statistics
     lines.append("🤖 <b>Bot Stats:</b>")
     lines.append(f"├ Total User: <b>{stats['total_users']}</b>")
@@ -113,6 +159,10 @@ async def cmd_start(message: Message) -> None:
     lines.append("├ /start — Buka menu utama")
     lines.append("├ /help — Bantuan")
     lines.append("└ /cancel — Batalkan proses aktif")
+
+    # Send extra messages first (referral bonus, trial)
+    for extra_msg in extra_messages:
+        await message.answer(extra_msg)
 
     await message.answer("\n".join(lines), reply_markup=main_menu_keyboard())
 
@@ -126,10 +176,17 @@ async def cmd_help(message: Message) -> None:
         "├ /help — Halaman ini\n"
         "├ /cancel — Batalkan proses aktif\n"
         "└ /admin — Panel admin (khusus admin)\n\n"
-        "🖼 <b>Generate Image</b> — Buat gambar dari teks\n"
-        "🎬 <b>Generate Video</b> — Buat video dari teks\n"
+        "🖼 <b>Image</b> — Generate gambar dari teks\n"
+        "🎬 <b>Video</b> — Generate video dari teks\n"
         "💎 <b>Subscription</b> — Kelola & beli langganan\n"
-        "📈 <b>My Limit</b> — Cek sisa kuota harian"
+        "📈 <b>My Limit</b> — Cek sisa kuota harian\n"
+        "📦 <b>Topup Kuota</b> — Beli kuota tambahan\n"
+        "🏆 <b>Leaderboard</b> — Top generator bulan ini\n"
+        "🔗 <b>Referral</b> — Ajak teman, dapat bonus\n\n"
+        "💡 <b>Tips:</b>\n"
+        "• User baru dapat trial Premium 12 jam!\n"
+        "• Ajak teman via referral → bonus +10 image\n"
+        "• Kuota extra dari topup tidak expired"
     )
     await message.answer(text)
 
@@ -223,8 +280,22 @@ async def show_my_limit(callback: CallbackQuery) -> None:
             f"\n📊 <b>Pemakaian Hari Ini:</b>\n"
             f"• Image: <b>{img_txt}</b>\n"
             f"• Video: <b>{vid_txt}</b>\n"
-            f"• Reset: <b>00:00 WIB</b>"
+            f"• Reset: <b>00:00 WIB</b>\n"
         )
+
+        # Extra quota
+        extra_img = status.get("extra_images", 0)
+        extra_vid = status.get("extra_videos", 0)
+        if extra_img > 0 or extra_vid > 0:
+            text += (
+                f"\n📦 <b>Extra Kuota:</b>\n"
+                f"• Image: <b>{extra_img}</b>\n"
+                f"• Video: <b>{extra_vid}</b>"
+            )
+
+        # Cooldown info
+        from ..rate_limiter import get_cooldown_text
+        text += f"\n\n⏱ Cooldown: <b>{get_cooldown_text(tier)}</b>"
 
     await safe_edit_text(callback.message, text, reply_markup=main_menu_keyboard())
     await callback.answer()

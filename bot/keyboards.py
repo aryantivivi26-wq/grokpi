@@ -12,7 +12,23 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="💎 Subscription", callback_data="menu:subs"),
                 InlineKeyboardButton(text="📈 My Limit", callback_data="menu:limit"),
             ],
-            [InlineKeyboardButton(text="🧹 Clean Chat", callback_data="menu:clean")],
+            [
+                InlineKeyboardButton(text="📦 Topup Kuota", callback_data="menu:topup"),
+                InlineKeyboardButton(text="🏆 Leaderboard", callback_data="menu:leaderboard"),
+            ],
+            [
+                InlineKeyboardButton(text="🔗 Referral", callback_data="menu:referral"),
+                InlineKeyboardButton(text="🧹 Clean Chat", callback_data="menu:clean"),
+            ],
+        ]
+    )
+
+
+def referral_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Refresh", callback_data="menu:referral")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
         ]
     )
 

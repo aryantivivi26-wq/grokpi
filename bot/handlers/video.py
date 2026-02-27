@@ -8,8 +8,10 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from ..client import gateway_client
 from ..keyboards import main_menu_keyboard, video_menu_keyboard
+from ..rate_limiter import check_cooldown, record_request
 from ..security import is_admin
 from ..states import VideoFlow
+from ..subscription_manager import subscription_manager
 from ..ui import safe_edit_text
 from ..user_limit_manager import user_limit_manager
 
@@ -146,6 +148,14 @@ async def set_video_preset(callback: CallbackQuery, state: FSMContext) -> None:
 async def ask_video_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     user_id = callback.from_user.id if callback.from_user else 0
     admin_user = is_admin(user_id)
+
+    # Rate limit check
+    tier = await subscription_manager.get_tier(user_id)
+    allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
+    if not allowed_cd:
+        await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+        return
+
     allowed, status = await user_limit_manager.can_consume(
         user_id,
         video_units=1,
@@ -236,6 +246,7 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
                     video_units=1,
                     is_admin_user=admin_user,
                 )
+                record_request(user_id)
                 await state.clear()
                 await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
                 return
@@ -253,6 +264,7 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
                     video_units=1,
                     is_admin_user=admin_user,
                 )
+                record_request(user_id)
     except Exception as exc:
         exc_str = str(exc)
         if "403" in exc_str and ("Just a moment" in exc_str or "DOCTYPE" in exc_str or "Cloudflare" in exc_str):

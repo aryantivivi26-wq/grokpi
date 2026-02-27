@@ -2,9 +2,13 @@
 SQLite database layer for the Telegram bot.
 
 Tables:
-  subscriptions – tier, expiry, grant info per user
-  daily_usage   – image/video usage counters per user per day
-  payments      – QRIS payment records
+  users          – user tracking (first_seen, last_seen, referral_code, trial_used)
+  subscriptions  – tier, expiry, grant info per user
+  daily_usage    – image/video usage counters per user per day
+  payments       – QRIS payment records
+  referrals      – referral tracking (referrer → referred)
+  extra_quota    – purchased extra image/video quota (topup)
+  reminders_sent – tracks expiry reminders already sent
 """
 
 import asyncio
@@ -51,11 +55,14 @@ async def close_db() -> None:
 async def _init_tables(db: aiosqlite.Connection) -> None:
     await db.executescript("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id     INTEGER PRIMARY KEY,
-            first_name  TEXT    NOT NULL DEFAULT '',
-            username    TEXT    NOT NULL DEFAULT '',
-            first_seen  REAL    NOT NULL DEFAULT 0,
-            last_seen   REAL    NOT NULL DEFAULT 0
+            user_id        INTEGER PRIMARY KEY,
+            first_name     TEXT    NOT NULL DEFAULT '',
+            username       TEXT    NOT NULL DEFAULT '',
+            first_seen     REAL    NOT NULL DEFAULT 0,
+            last_seen      REAL    NOT NULL DEFAULT 0,
+            referral_code  TEXT    NOT NULL DEFAULT '',
+            trial_used     INTEGER NOT NULL DEFAULT 0,
+            referred_by    INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS subscriptions (
@@ -86,11 +93,51 @@ async def _init_tables(db: aiosqlite.Connection) -> None:
             paid_at         REAL    NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS referrals (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            referrer_id INTEGER NOT NULL,
+            referred_id INTEGER NOT NULL UNIQUE,
+            bonus_given INTEGER NOT NULL DEFAULT 0,
+            created_at  REAL    NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS extra_quota (
+            user_id  INTEGER PRIMARY KEY,
+            images   INTEGER NOT NULL DEFAULT 0,
+            videos   INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS reminders_sent (
+            user_id    INTEGER NOT NULL,
+            reminder   TEXT    NOT NULL,
+            sent_at    REAL    NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, reminder)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_payments_user
             ON payments (user_id, status);
         CREATE INDEX IF NOT EXISTS idx_payments_txn
             ON payments (transaction_id);
+        CREATE INDEX IF NOT EXISTS idx_referrals_referrer
+            ON referrals (referrer_id);
+        CREATE INDEX IF NOT EXISTS idx_daily_usage_date
+            ON daily_usage (date_key);
     """)
+
+    # --- Schema migration: add columns if missing ---
+    try:
+        await db.execute("SELECT referral_code FROM users LIMIT 1")
+    except Exception:
+        await db.execute("ALTER TABLE users ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
+    try:
+        await db.execute("SELECT trial_used FROM users LIMIT 1")
+    except Exception:
+        await db.execute("ALTER TABLE users ADD COLUMN trial_used INTEGER NOT NULL DEFAULT 0")
+    try:
+        await db.execute("SELECT referred_by FROM users LIMIT 1")
+    except Exception:
+        await db.execute("ALTER TABLE users ADD COLUMN referred_by INTEGER NOT NULL DEFAULT 0")
+
     await db.commit()
 
 
@@ -98,28 +145,38 @@ async def _init_tables(db: aiosqlite.Connection) -> None:
 # Users
 # ---------------------------------------------------------------------------
 
-async def upsert_user(user_id: int, first_name: str = "", username: str = "") -> None:
-    """Insert or update a user record (called on every /start)."""
+async def upsert_user(user_id: int, first_name: str = "", username: str = "") -> bool:
+    """Insert or update a user record (called on every /start).
+    Returns True if this is a brand-new user (first seen now).
+    """
     db = await get_db()
     now = time.time()
+    ref_code = f"ref_{user_id}"
+
+    # Check if user already exists
+    async with db.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)) as cur:
+        existing = await cur.fetchone()
+
     await db.execute(
         """
-        INSERT INTO users (user_id, first_name, username, first_seen, last_seen)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO users (user_id, first_name, username, first_seen, last_seen, referral_code)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             first_name = excluded.first_name,
             username   = excluded.username,
             last_seen  = excluded.last_seen
         """,
-        (user_id, first_name, username, now, now),
+        (user_id, first_name, username, now, now, ref_code),
     )
     await db.commit()
+    return existing is None
 
 
 async def get_user(user_id: int) -> Optional[Dict[str, Any]]:
     db = await get_db()
     async with db.execute(
-        "SELECT user_id, first_name, username, first_seen, last_seen FROM users WHERE user_id = ?",
+        "SELECT user_id, first_name, username, first_seen, last_seen, "
+        "referral_code, trial_used, referred_by FROM users WHERE user_id = ?",
         (user_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -365,6 +422,214 @@ async def list_user_payments(user_id: int, limit: int = 10) -> List[Dict[str, An
         async for row in cur:
             rows.append({k: row[k] for k in row.keys()})
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Referrals
+# ---------------------------------------------------------------------------
+
+async def mark_trial_used(user_id: int) -> None:
+    db = await get_db()
+    await db.execute("UPDATE users SET trial_used = 1 WHERE user_id = ?", (user_id,))
+    await db.commit()
+
+
+async def set_referred_by(user_id: int, referrer_id: int) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE users SET referred_by = ? WHERE user_id = ?",
+        (referrer_id, user_id),
+    )
+    await db.commit()
+
+
+async def create_referral(referrer_id: int, referred_id: int) -> bool:
+    """Record a referral. Returns True if successfully created (not duplicate)."""
+    db = await get_db()
+    now = time.time()
+    try:
+        await db.execute(
+            "INSERT INTO referrals (referrer_id, referred_id, created_at) VALUES (?, ?, ?)",
+            (referrer_id, referred_id, now),
+        )
+        await db.commit()
+        return True
+    except Exception:
+        return False
+
+
+async def mark_referral_bonus(referred_id: int) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE referrals SET bonus_given = 1 WHERE referred_id = ?",
+        (referred_id,),
+    )
+    await db.commit()
+
+
+async def count_referrals(referrer_id: int) -> int:
+    db = await get_db()
+    async with db.execute(
+        "SELECT COUNT(*) as cnt FROM referrals WHERE referrer_id = ?",
+        (referrer_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    return row["cnt"] if row else 0
+
+
+async def get_referral_by_referred(referred_id: int) -> Optional[Dict[str, Any]]:
+    db = await get_db()
+    async with db.execute(
+        "SELECT referrer_id, referred_id, bonus_given, created_at "
+        "FROM referrals WHERE referred_id = ?",
+        (referred_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return None
+    return {k: row[k] for k in row.keys()}
+
+
+# ---------------------------------------------------------------------------
+# Extra Quota (Topup)
+# ---------------------------------------------------------------------------
+
+async def get_extra_quota(user_id: int) -> Dict[str, int]:
+    db = await get_db()
+    async with db.execute(
+        "SELECT images, videos FROM extra_quota WHERE user_id = ?",
+        (user_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return {"images": 0, "videos": 0}
+    return {"images": row["images"], "videos": row["videos"]}
+
+
+async def add_extra_quota(user_id: int, images: int = 0, videos: int = 0) -> Dict[str, int]:
+    db = await get_db()
+    await db.execute(
+        """
+        INSERT INTO extra_quota (user_id, images, videos)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            images = extra_quota.images + excluded.images,
+            videos = extra_quota.videos + excluded.videos
+        """,
+        (user_id, images, videos),
+    )
+    await db.commit()
+    return await get_extra_quota(user_id)
+
+
+async def deduct_extra_quota(user_id: int, images: int = 0, videos: int = 0) -> bool:
+    """Deduct from extra quota. Returns True if sufficient quota available."""
+    db = await get_db()
+    quota = await get_extra_quota(user_id)
+    if quota["images"] < images or quota["videos"] < videos:
+        return False
+    await db.execute(
+        "UPDATE extra_quota SET images = images - ?, videos = videos - ? WHERE user_id = ?",
+        (images, videos, user_id),
+    )
+    await db.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard
+# ---------------------------------------------------------------------------
+
+async def get_leaderboard(limit: int = 10) -> List[Dict[str, Any]]:
+    """Get top users by total generation count for the current month."""
+    import datetime
+    wib = datetime.timezone(datetime.timedelta(hours=7))
+    month_prefix = datetime.datetime.now(wib).strftime("%Y-%m")
+    db = await get_db()
+    rows = []
+    async with db.execute(
+        """
+        SELECT d.user_id,
+               COALESCE(u.first_name, '') as first_name,
+               COALESCE(u.username, '') as username,
+               SUM(d.images) as total_images,
+               SUM(d.videos) as total_videos,
+               SUM(d.images) + SUM(d.videos) as total
+        FROM daily_usage d
+        LEFT JOIN users u ON d.user_id = u.user_id
+        WHERE d.date_key LIKE ?
+        GROUP BY d.user_id
+        ORDER BY total DESC
+        LIMIT ?
+        """,
+        (f"{month_prefix}%", limit),
+    ) as cur:
+        async for row in cur:
+            rows.append({k: row[k] for k in row.keys()})
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Reminders
+# ---------------------------------------------------------------------------
+
+async def get_expiring_subscriptions(within_seconds: float = 86400) -> List[Dict[str, Any]]:
+    """Find subscriptions expiring within the given timeframe."""
+    db = await get_db()
+    now = time.time()
+    cutoff = now + within_seconds
+    rows = []
+    async with db.execute(
+        """
+        SELECT s.user_id, s.tier, s.expires,
+               COALESCE(u.first_name, '') as first_name
+        FROM subscriptions s
+        LEFT JOIN users u ON s.user_id = u.user_id
+        WHERE s.expires > ? AND s.expires <= ? AND s.tier != 'free'
+        """,
+        (now, cutoff),
+    ) as cur:
+        async for row in cur:
+            rows.append({k: row[k] for k in row.keys()})
+    return rows
+
+
+async def is_reminder_sent(user_id: int, reminder: str) -> bool:
+    db = await get_db()
+    async with db.execute(
+        "SELECT 1 FROM reminders_sent WHERE user_id = ? AND reminder = ?",
+        (user_id, reminder),
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def mark_reminder_sent(user_id: int, reminder: str) -> None:
+    db = await get_db()
+    now = time.time()
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO reminders_sent (user_id, reminder, sent_at)
+        VALUES (?, ?, ?)
+        """,
+        (user_id, reminder, now),
+    )
+    await db.commit()
+
+
+async def cleanup_old_reminders() -> int:
+    """Delete reminder records for expired subscriptions."""
+    db = await get_db()
+    now = time.time()
+    cur = await db.execute(
+        """
+        DELETE FROM reminders_sent WHERE user_id NOT IN (
+            SELECT user_id FROM subscriptions WHERE expires > ?
+        )
+        """,
+        (now,),
+    )
+    await db.commit()
+    return cur.rowcount
 
 
 # ---------------------------------------------------------------------------
