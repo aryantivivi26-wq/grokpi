@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.logger import logger, get_uvicorn_log_config
 from app.services.sso_manager import sso_manager
 from app.services.cf_solver import cf_solver
+from app.backends.router import backend_router
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -79,8 +80,33 @@ async def lifespan(app: FastAPI):
     # Auto-refresh CF_CLEARANCE via FlareSolverr (jika tersedia)
     await cf_solver.start()
 
+    # ===== Register Backend Clients =====
+    # Grok backend (always register)
+    from app.backends.grok.client import GrokBackendClient
+    grok_backend = GrokBackendClient()
+    backend_router.register(grok_backend, prefixes=["grok"])
+    logger.info("[Backend] Grok backend registered")
+
+    # Gemini backend (conditional)
+    if settings.GEMINI_ENABLED:
+        try:
+            from app.backends.gemini.client import GeminiBackendClient
+            gemini_backend = GeminiBackendClient()
+            backend_router.register(gemini_backend, prefixes=["gemini"])
+            logger.info("[Backend] Gemini backend registered")
+        except Exception as e:
+            logger.error(f"[Backend] Failed to register Gemini: {e}")
+    else:
+        logger.info("[Backend] Gemini backend disabled (GEMINI_ENABLED=false)")
+
+    # Initialize all registered backends
+    await backend_router.initialize_all()
+    logger.info(f"[Backend] All backends initialized. Models: {[m['id'] for m in backend_router.list_all_models()]}")
+
     yield
 
+    # Shutdown backends
+    await backend_router.shutdown_all()
     await cf_solver.stop()
     logger.info("Grok Imagine API Gateway telah ditutup")
 

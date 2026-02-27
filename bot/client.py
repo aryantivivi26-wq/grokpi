@@ -43,11 +43,12 @@ class GatewayClient:
                     raise RuntimeError(f"{response.status} - {data}")
                 return data
 
-    async def generate_image(self, prompt: str, n: int, aspect_ratio: str) -> Dict[str, Any]:
+    async def generate_image(self, prompt: str, n: int, aspect_ratio: str, model: str = "grok-2-image") -> Dict[str, Any]:
         return await self._post(
             "/v1/images/generations",
             {
                 "prompt": prompt,
+                "model": model,
                 "n": n,
                 "aspect_ratio": aspect_ratio,
             },
@@ -60,11 +61,13 @@ class GatewayClient:
         duration_seconds: int,
         resolution: str,
         preset: str,
+        model: str = "grok-2-video",
     ) -> Dict[str, Any]:
         return await self._post(
             "/v1/videos/generations",
             {
                 "prompt": prompt,
+                "model": model,
                 "aspect_ratio": aspect_ratio,
                 "duration_seconds": duration_seconds,
                 "resolution": resolution,

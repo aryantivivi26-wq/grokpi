@@ -12,12 +12,18 @@ from ..rate_limiter import check_cooldown, record_request
 from ..security import is_admin
 from ..states import VideoFlow
 from ..subscription_manager import subscription_manager
-from ..ui import safe_edit_text
+from ..ui import clear_state, get_backend, safe_edit_text
 from ..user_limit_manager import user_limit_manager
 
 router = Router()
 ROOT_DIR = Path(__file__).resolve().parents[2]
 VIDEOS_DIR = ROOT_DIR / "data" / "videos"
+
+# Backend → video model mapping
+BACKEND_VIDEO_MODEL = {
+    "grok": "grok-2-video",
+    "gemini": "gemini-veo",
+}
 
 
 def _resolve_local_video_path(url: str) -> Path | None:
@@ -70,7 +76,45 @@ async def _ensure_video_defaults(state: FSMContext) -> tuple[str, int, str, str]
 
 @router.callback_query(F.data == "menu:video")
 async def open_video_menu(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    await clear_state(state)
+    user_id = callback.from_user.id if callback.from_user else 0
+    backend = await get_backend(state)
+
+    # Gemini: no settings, go straight to prompt (landscape, 8s, fixed)
+    if backend == "gemini":
+        admin_user = is_admin(user_id)
+        tier = await subscription_manager.get_tier(user_id)
+        allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
+        if not allowed_cd:
+            await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+            return
+        allowed, status = await user_limit_manager.can_consume(
+            user_id, video_units=1, is_admin_user=admin_user,
+        )
+        if not allowed:
+            await callback.answer("Limit video harian habis", show_alert=True)
+            await safe_edit_text(
+                callback.message,
+                (
+                    "❌ <b>Limit video harian habis</b>\n"
+                    f"Sisa video hari ini: <b>{status['videos_remaining']}</b>\n"
+                    "Cek menu <b>My Limit</b> untuk detail."
+                ),
+                reply_markup=main_menu_keyboard(backend),
+            )
+            return
+        await state.set_state(VideoFlow.waiting_prompt)
+        await safe_edit_text(
+            callback.message,
+            "🎬 <b>Gemini Video Generator</b>\n"
+            "• Format: <b>Landscape</b> (otomatis)\n"
+            "• Durasi: <b>8 detik</b>\n\n"
+            "✍️ Kirim prompt video sekarang.",
+        )
+        await callback.answer()
+        return
+
+    # Grok: show settings menu
     aspect, duration, resolution, preset = await _ensure_video_defaults(state)
     await safe_edit_text(
         callback.message,
@@ -170,7 +214,7 @@ async def ask_video_prompt(callback: CallbackQuery, state: FSMContext) -> None:
                 f"Sisa video hari ini: <b>{status['videos_remaining']}</b>\n"
                 "Cek menu <b>My Limit</b> untuk detail."
             ),
-            reply_markup=main_menu_keyboard(),
+            reply_markup=main_menu_keyboard(await get_backend(state)),
         )
         return
 
@@ -194,18 +238,29 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
         is_admin_user=admin_user,
     )
     if not allowed:
-        await state.clear()
+        await clear_state(state)
         await message.answer(
             (
                 "❌ Limit video harian habis.\n"
                 f"Sisa video hari ini: {status['videos_remaining']}"
             )
         )
-        await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+        await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
         return
 
     aspect, duration, resolution, preset = await _ensure_video_defaults(state)
     wait_msg = await message.answer("⏳ Sedang generate video... proses bisa lebih lama")
+
+    data = await state.get_data()
+    backend = data.get("backend", "grok")
+    model = BACKEND_VIDEO_MODEL.get(backend, "grok-2-video")
+
+    # Gemini: override to fixed landscape 8s
+    if backend == "gemini":
+        aspect = "16:9"
+        duration = 8
+        resolution = "720p"
+        preset = "normal"
 
     try:
         payload = await gateway_client.generate_video(
@@ -214,6 +269,7 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
             duration_seconds=duration,
             resolution=resolution,
             preset=preset,
+            model=model,
         )
         data = payload.get("data", [])
         item = data[0] if data else {}
@@ -247,8 +303,8 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
                     is_admin_user=admin_user,
                 )
                 record_request(user_id)
-                await state.clear()
-                await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+                await clear_state(state)
+                await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
                 return
             if not _is_local_url(video_url):
                 try:
@@ -287,5 +343,5 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
         except Exception:
             await wait_msg.edit_text("❌ Generate video gagal.")
 
-    await state.clear()
-    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+    await clear_state(state)
+    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))

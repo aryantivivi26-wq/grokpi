@@ -42,7 +42,7 @@ from ..subscription_manager import (
     DURATION_LABELS,
     subscription_manager,
 )
-from ..ui import safe_edit_text
+from ..ui import clear_state, safe_edit_text
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ async def adm_user_search_input(message: Message, state: FSMContext) -> None:
         await message.answer("❌ User ID harus angka. Coba lagi:")
         return
 
-    await state.clear()
+    await clear_state(state)
     user = await db.get_user(target_uid)
     if not user:
         await message.answer(
@@ -476,7 +476,7 @@ async def adm_broadcast_send(callback: CallbackQuery, state: FSMContext, bot: Bo
 
     data = await state.get_data()
     bc_text = data.get("bc_text", "")
-    await state.clear()
+    await clear_state(state)
 
     if not bc_text:
         await callback.answer("Pesan kosong, batalkan", show_alert=True)

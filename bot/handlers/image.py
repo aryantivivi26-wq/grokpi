@@ -11,12 +11,18 @@ from ..rate_limiter import check_cooldown, record_request
 from ..security import is_admin
 from ..states import ImageFlow
 from ..subscription_manager import subscription_manager
-from ..ui import safe_edit_text
+from ..ui import clear_state, get_backend, safe_edit_text
 from ..user_limit_manager import user_limit_manager
 
 router = Router()
 ROOT_DIR = Path(__file__).resolve().parents[2]
 IMAGES_DIR = ROOT_DIR / "data" / "images"
+
+# Backend → image model mapping
+BACKEND_IMAGE_MODEL = {
+    "grok": "grok-2-image",
+    "gemini": "gemini-imagen",
+}
 
 
 def _resolve_local_image_path(url: str) -> Path | None:
@@ -57,8 +63,45 @@ async def _ensure_image_defaults(state: FSMContext) -> tuple[str, int]:
 
 @router.callback_query(F.data == "menu:image")
 async def open_image_menu(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    await clear_state(state)
     user_id = callback.from_user.id if callback.from_user else 0
+    backend = await get_backend(state)
+
+    # Gemini: no settings, go straight to prompt (always 1 image, landscape)
+    if backend == "gemini":
+        admin_user = is_admin(user_id)
+        tier = await subscription_manager.get_tier(user_id)
+        allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
+        if not allowed_cd:
+            await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+            return
+        allowed, status = await user_limit_manager.can_consume(
+            user_id, image_units=1, is_admin_user=admin_user,
+        )
+        if not allowed:
+            await callback.answer("Limit image harian tidak cukup", show_alert=True)
+            await safe_edit_text(
+                callback.message,
+                (
+                    "❌ <b>Limit image harian tidak cukup</b>\n"
+                    f"Sisa image hari ini: <b>{status['images_remaining']}</b>\n"
+                    "Cek menu <b>My Limit</b> untuk detail."
+                ),
+                reply_markup=main_menu_keyboard(backend),
+            )
+            return
+        await state.set_state(ImageFlow.waiting_prompt)
+        await safe_edit_text(
+            callback.message,
+            "🖼 <b>Gemini Image Generator</b>\n"
+            "• Format: <b>Landscape</b> (otomatis)\n"
+            "• Jumlah: <b>1 gambar</b>\n\n"
+            "✍️ Kirim prompt gambar sekarang.",
+        )
+        await callback.answer()
+        return
+
+    # Grok: show settings menu
     tier_limits = await subscription_manager.get_limits(user_id)
     aspect, n = await _ensure_image_defaults(state)
     # clamp n to tier max
@@ -140,7 +183,7 @@ async def ask_image_prompt(callback: CallbackQuery, state: FSMContext) -> None:
                 f"Sisa image hari ini: <b>{status['images_remaining']}</b>\n"
                 "Cek menu <b>My Limit</b> untuk detail."
             ),
-            reply_markup=main_menu_keyboard(),
+            reply_markup=main_menu_keyboard(await get_backend(state)),
         )
         return
 
@@ -206,13 +249,14 @@ async def _generate_and_send(
     user_id: int,
     admin_user: bool,
     prompt_label: str = "",
+    model: str = "grok-2-image",
 ) -> int:
     """Generate images for one prompt. Returns number of images actually sent."""
     label = f" [{prompt_label}]" if prompt_label else ""
     wait_msg = await message.answer(f"⏳ Generating{label}...")
 
     try:
-        payload = await gateway_client.generate_image(prompt=prompt, n=n, aspect_ratio=aspect)
+        payload = await gateway_client.generate_image(prompt=prompt, n=n, aspect_ratio=aspect, model=model)
         data = payload.get("data", [])
         urls = [item.get("url", "") for item in data if item.get("url")]
         if not urls:
@@ -261,27 +305,37 @@ async def handle_image_prompt(message: Message, state: FSMContext) -> None:
 
     user_id = message.from_user.id if message.from_user else 0
     admin_user = is_admin(user_id)
-    aspect, n = await _ensure_image_defaults(state)
+    data = await state.get_data()
+    backend = data.get("backend", "grok")
+
+    # Gemini: fixed 1 image, landscape (aspect ignored by backend)
+    if backend == "gemini":
+        n = 1
+        aspect = "landscape"
+    else:
+        aspect, n = await _ensure_image_defaults(state)
+
     allowed, status = await user_limit_manager.can_consume(
         user_id,
         image_units=n,
         is_admin_user=admin_user,
     )
     if not allowed:
-        await state.clear()
+        await clear_state(state)
         await message.answer(
             f"❌ Limit image harian habis.\nSisa image hari ini: {status['images_remaining']}"
         )
-        await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+        await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
         return
 
-    sent = await _generate_and_send(message, prompt, n, aspect, user_id, admin_user)
+    model = BACKEND_IMAGE_MODEL.get(backend, "grok-2-image")
+    sent = await _generate_and_send(message, prompt, n, aspect, user_id, admin_user, model=model)
     if sent > 0:
         await user_limit_manager.consume(user_id, image_units=sent, is_admin_user=admin_user)
         record_request(user_id)
 
-    await state.clear()
-    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+    await clear_state(state)
+    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
 
 
 @router.message(ImageFlow.waiting_batch_prompts)
@@ -318,9 +372,9 @@ async def handle_batch_prompts(message: Message, state: FSMContext) -> None:
         remaining = int(status["images_remaining"])
         can_do = remaining // n if n > 0 else 0
         if can_do <= 0:
-            await state.clear()
+            await clear_state(state)
             await message.answer(f"❌ Limit image habis. Sisa: {remaining}")
-            await message.answer("🏠 <b>Main Menu</b>", reply_markup=main_menu_keyboard())
+            await message.answer("🏠 <b>Main Menu</b>", reply_markup=main_menu_keyboard(await get_backend(state)))
             return
         await message.answer(
             f"⚠️ Limit tidak cukup untuk {len(prompts)} prompt. "
@@ -330,11 +384,16 @@ async def handle_batch_prompts(message: Message, state: FSMContext) -> None:
 
     await message.answer(f"🚀 Memulai batch generate: <b>{len(prompts)}</b> prompt × <b>{n}</b> gambar...")
 
+    data = await state.get_data()
+    backend = data.get("backend", "grok")
+    model = BACKEND_IMAGE_MODEL.get(backend, "grok-2-image")
+
     total_sent = 0
     for idx, prompt in enumerate(prompts, 1):
         sent = await _generate_and_send(
             message, prompt, n, aspect, user_id, admin_user,
             prompt_label=f"{idx}/{len(prompts)}",
+            model=model,
         )
         if sent > 0:
             await user_limit_manager.consume(user_id, image_units=sent, is_admin_user=admin_user)
@@ -343,5 +402,5 @@ async def handle_batch_prompts(message: Message, state: FSMContext) -> None:
     await message.answer(f"✅ Batch selesai! Total gambar: <b>{total_sent}</b>")
     if total_sent > 0:
         record_request(user_id)
-    await state.clear()
-    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())
+    await clear_state(state)
+    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))

@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     FLARESOLVERR_URL: str = "http://localhost:8191"  # URL FlareSolverr
     CF_REFRESH_INTERVAL: int = 3600  # Refresh cf_clearance setiap N detik
 
+    # ============ Gemini Backend ============
+    GEMINI_ENABLED: bool = False  # Aktifkan backend Gemini Business
+    GEMINI_ACCOUNTS_CONFIG: str = ""  # JSON: [{"secure_c_ses":"...", "csesidx":"...", "config_id":"..."}]
+    GEMINI_PROXY_URL: Optional[str] = None  # Proxy untuk Gemini API
+    GEMINI_COOLDOWN_TEXT: int = 60  # Cooldown text quota (detik)
+    GEMINI_COOLDOWN_IMAGES: int = 60  # Cooldown image quota (detik)
+    GEMINI_COOLDOWN_VIDEOS: int = 60  # Cooldown video quota (detik)
+    GEMINI_SESSION_CACHE_TTL: int = 1800  # Session cache TTL (detik)
+
     def get_base_url(self) -> str:
         """Mendapatkan URL dasar gambar, jika tidak diatur akan dibuat otomatis dari HOST:PORT"""
         if self.BASE_URL:

@@ -1,7 +1,14 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+# Backend display labels
+BACKEND_LABELS = {
+    "grok": "⚡ Grok",
+    "gemini": "💎 Gemini",
+}
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
+
+def main_menu_keyboard(backend: str = "grok") -> InlineKeyboardMarkup:
+    backend_label = BACKEND_LABELS.get(backend, backend)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -20,6 +27,12 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔗 Referral", callback_data="menu:referral"),
                 InlineKeyboardButton(text="🧹 Clean Chat", callback_data="menu:clean"),
             ],
+            [
+                InlineKeyboardButton(
+                    text=f"🤖 Model: {backend_label}",
+                    callback_data="menu:backend",
+                ),
+            ],
         ]
     )
 
@@ -28,6 +41,25 @@ def referral_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🔄 Refresh", callback_data="menu:referral")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
+        ]
+    )
+
+
+def backend_select_keyboard(current: str = "grok") -> InlineKeyboardMarkup:
+    """Keyboard for selecting backend (Grok / Gemini)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"{'✅ ' if current == 'grok' else ''}⚡ Grok",
+                    callback_data="backend:grok",
+                ),
+                InlineKeyboardButton(
+                    text=f"{'✅ ' if current == 'gemini' else ''}💎 Gemini",
+                    callback_data="backend:gemini",
+                ),
+            ],
             [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
         ]
     )

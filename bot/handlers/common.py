@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from .. import database as db
-from ..keyboards import admin_menu_keyboard, main_menu_keyboard, sso_menu_keyboard
+from ..keyboards import admin_menu_keyboard, backend_select_keyboard, main_menu_keyboard, sso_menu_keyboard
 from ..security import is_admin
 from ..subscription_manager import (
     DURATION_LABELS,
@@ -17,7 +17,7 @@ from ..subscription_manager import (
     Tier,
     subscription_manager,
 )
-from ..ui import safe_edit_text
+from ..ui import clear_state, get_backend, safe_edit_text
 from ..user_limit_manager import user_limit_manager
 
 router = Router()
@@ -34,7 +34,7 @@ TRIAL_SECONDS = 12 * 3600
 
 @router.message(CommandStart(deep_link=True))
 @router.message(CommandStart())
-async def cmd_start(message: Message, command: CommandObject = None) -> None:
+async def cmd_start(message: Message, state: FSMContext, command: CommandObject = None) -> None:
     user = message.from_user
     user_id = user.id if user else 0
     name = user.first_name if user else "User"
@@ -164,7 +164,7 @@ async def cmd_start(message: Message, command: CommandObject = None) -> None:
     for extra_msg in extra_messages:
         await message.answer(extra_msg)
 
-    await message.answer("\n".join(lines), reply_markup=main_menu_keyboard())
+    await message.answer("\n".join(lines), reply_markup=main_menu_keyboard(await get_backend(state)))
 
 
 @router.message(Command("help"))
@@ -221,23 +221,66 @@ async def cmd_sso(message: Message) -> None:
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
+    await clear_state(state)
     await message.answer("✅ Flow dibatalkan.")
-    await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard())
+    await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
 
 
 @router.callback_query(F.data == "menu:home")
-async def to_home(callback: CallbackQuery) -> None:
+async def to_home(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    backend = data.get("backend", "grok")
     await safe_edit_text(
         callback.message,
         HOME_TEXT,
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(backend),
     )
     await callback.answer()
 
 
+# ---------------------------------------------------------------------------
+# Backend selection toggle
+# ---------------------------------------------------------------------------
+
+@router.callback_query(F.data == "menu:backend")
+async def open_backend_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    current = data.get("backend", "grok")
+    await safe_edit_text(
+        callback.message,
+        (
+            "🤖 <b>Pilih Model</b>\n\n"
+            "Pilih AI model yang ingin digunakan:\n\n"
+            "⚡ <b>Grok</b> — Image & Video generation (xAI)\n"
+            "💎 <b>Gemini</b> — Image & Video generation (Google)\n\n"
+            f"Aktif saat ini: <b>{current.title()}</b>"
+        ),
+        reply_markup=backend_select_keyboard(current),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("backend:"))
+async def set_backend(callback: CallbackQuery, state: FSMContext) -> None:
+    new_backend = callback.data.replace("backend:", "", 1)
+    data = await state.get_data()
+    current = data.get("backend", "grok")
+
+    if new_backend == current:
+        await callback.answer(f"{new_backend.title()} sudah aktif")
+        return
+
+    await state.update_data(backend=new_backend)
+    await safe_edit_text(
+        callback.message,
+        HOME_TEXT,
+        reply_markup=main_menu_keyboard(new_backend),
+    )
+    await callback.answer(f"✅ Model diubah ke {new_backend.title()}")
+
+
 @router.callback_query(F.data == "menu:limit")
-async def show_my_limit(callback: CallbackQuery) -> None:
+async def show_my_limit(callback: CallbackQuery, state: FSMContext) -> None:
     user_id = callback.from_user.id if callback.from_user else 0
     admin_user = is_admin(user_id)
     status = await user_limit_manager.get_status(user_id, is_admin_user=admin_user)
@@ -297,19 +340,19 @@ async def show_my_limit(callback: CallbackQuery) -> None:
         from ..rate_limiter import get_cooldown_text
         text += f"\n\n⏱ Cooldown: <b>{get_cooldown_text(tier)}</b>"
 
-    await safe_edit_text(callback.message, text, reply_markup=main_menu_keyboard())
+    await safe_edit_text(callback.message, text, reply_markup=main_menu_keyboard(await get_backend(state)))
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:clean")
 async def clean_chat(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    await clear_state(state)
     if callback.message:
         try:
             await callback.message.delete()
         except Exception:
             pass
-        await callback.message.answer(HOME_TEXT, reply_markup=main_menu_keyboard())
+        await callback.message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
     await callback.answer("Menu dibersihkan")
 
 

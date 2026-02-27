@@ -1,16 +1,16 @@
-"""Chat Completions API - Gateway LLM yang kompatibel dengan OpenAI, untuk pembuatan gambar"""
+"""Chat Completions API - Multi-backend LLM gateway (Grok + Gemini), compatible with OpenAI"""
 
 import time
 import json
 import uuid
-from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Optional, List, Dict, Any, Union
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.security import require_api_key
 from app.core.logger import logger
-from app.services.grok_client import grok_client, ImageProgress, GenerationProgress
+from app.backends.router import backend_router
 
 
 router = APIRouter()
@@ -21,7 +21,7 @@ router = APIRouter()
 class ChatMessage(BaseModel):
     """Pesan chat"""
     role: str = Field(..., description="Peran: user/assistant/system")
-    content: str = Field(..., description="Konten pesan")
+    content: Union[str, List[Dict[str, Any]]] = Field(..., description="Konten pesan")
 
 
 class ChatCompletionRequest(BaseModel):
@@ -31,13 +31,14 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = Field(True, description="Apakah mengembalikan stream")
     max_tokens: Optional[int] = Field(4096, description="Jumlah token maksimal")
     temperature: Optional[float] = Field(1.0, description="Temperature")
-    n: Optional[int] = Field(4, description="Jumlah gambar yang dihasilkan", ge=1, le=4)
+    top_p: Optional[float] = Field(1.0, description="Top-p")
+    n: Optional[int] = Field(4, description="Jumlah gambar yang dihasilkan (Grok)", ge=1, le=4)
 
     class Config:
         json_schema_extra = {
             "example": {
                 "model": "grok-imagine",
-                "messages": [{"role": "user", "content": "Gambar seekor kucing yang lucu"}],
+                "messages": [{"role": "user", "content": "A cute cat"}],
                 "stream": True
             }
         }
@@ -48,224 +49,96 @@ class ChatCompletionRequest(BaseModel):
 
 def extract_prompt(messages: List[ChatMessage]) -> str:
     """Ekstrak prompt pembuatan gambar dari daftar pesan"""
-    # Ambil pesan user terakhir sebagai prompt
     for msg in reversed(messages):
-        if msg.role == "user" and msg.content.strip():
-            return msg.content.strip()
+        if msg.role == "user":
+            content = msg.content
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+            elif isinstance(content, list):
+                text = "".join(p.get("text", "") for p in content if p.get("type") == "text")
+                if text.strip():
+                    return text.strip()
     return ""
 
 
-def create_chat_chunk(
-    chunk_id: str,
-    content: str = "",
-    finish_reason: Optional[str] = None,
-    thinking: Optional[str] = None,
-    thinking_progress: Optional[int] = None
-) -> str:
-    """Membuat blok response chat dengan format SSE"""
-    delta: Dict[str, Any] = {}
-
-    if content:
-        delta["content"] = content
-    if thinking:
-        delta["thinking"] = thinking
-    if thinking_progress is not None:
-        delta["thinking_progress"] = thinking_progress
-
-    chunk = {
-        "id": chunk_id,
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": "grok-imagine",
-        "choices": [{
-            "index": 0,
-            "delta": delta if delta else {},
-            "finish_reason": finish_reason
-        }]
-    }
-
-    return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+def _get_base_url(request: Request) -> str:
+    """Get base URL from request (for media file URLs)."""
+    from app.core.config import settings
+    if settings.BASE_URL:
+        return settings.BASE_URL.rstrip("/")
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    forwarded_host = request.headers.get("x-forwarded-host", request.headers.get("host", "localhost"))
+    return f"{forwarded_proto}://{forwarded_host}"
 
 
 # ============== API Routes ==============
 
 @router.post("/chat/completions")
 async def chat_completions(
-    request: ChatCompletionRequest,
-    _: bool = Depends(require_api_key)
+    request_data: ChatCompletionRequest,
+    request: Request,
+    _: bool = Depends(require_api_key),
 ):
     """
     Chat Completions API yang kompatibel dengan OpenAI
 
-    User memasukkan konten yang ingin digambar, mengembalikan progress thinking secara stream dan URL gambar akhir
+    Routes to the appropriate backend based on model name:
+    - grok-* models -> Grok backend (image generation)
+    - gemini-* models -> Gemini backend (chat, image, video)
     """
-    # Ekstrak prompt
-    prompt = extract_prompt(request.messages)
-    if not prompt:
-        raise HTTPException(status_code=400, detail="No prompt found in messages")
+    model = request_data.model
+    request_id = str(uuid.uuid4())[:6]
 
-    logger.info(f"[Chat] Request generate: {prompt[:50]}... n={request.n}")
-
-    # Mode streaming
-    if request.stream:
-        return StreamingResponse(
-            stream_chat_generate(prompt=prompt, n=request.n),
-            media_type="text/event-stream"
-        )
-
-    # Mode non-streaming - tunggu sampai selesai lalu return
-    result = await grok_client.generate(
-        prompt=prompt,
-        n=request.n,
-        enable_nsfw=True
-    )
-
-    if not result.get("success"):
+    # Find backend for this model
+    backend = backend_router.get_backend(model)
+    if backend is None:
+        all_models = [m["id"] for m in backend_router.list_all_models()]
         raise HTTPException(
-            status_code=500,
-            detail=result.get("error", "Image generation failed")
+            status_code=404,
+            detail=f"Model '{model}' not found. Available: {all_models}",
         )
 
-    # Membangun konten response
-    urls = result.get("urls", [])
-    content = "Gambar telah dihasilkan untuk Anda:\n\n" + "\n".join([f"![Gambar]({url})" for url in urls])
+    logger.info(f"[Chat] [{backend.name}] [req_{request_id}] model={model} stream={request_data.stream}")
 
-    return {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": "grok-imagine",
-        "choices": [{
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": content
-            },
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": len(prompt),
-            "completion_tokens": len(content),
-            "total_tokens": len(prompt) + len(content)
-        }
-    }
-
-
-async def stream_chat_generate(prompt: str, n: int):
-    """
-    Generate gambar secara streaming, output progress thinking dan URL akhir
-
-    Pemetaan progress:
-    - preview: 33%
-    - medium: 66%
-    - final: 99%
-    """
-    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-
-    # Pemetaan tahap ke progress
-    stage_progress = {
-        "preview": 33,
-        "medium": 66,
-        "final": 99
-    }
-
-    # Catat tahap terbaru untuk setiap gambar, hindari output duplikat
-    image_stages: Dict[str, str] = {}
-    final_urls: List[str] = []
+    base_url = _get_base_url(request)
+    messages = [m.model_dump() for m in request_data.messages]
 
     try:
-        # Mulai thinking
-        yield create_chat_chunk(
-            chunk_id,
-            thinking=f"Sedang membuat gambar untuk Anda: {prompt[:50]}...",
-            thinking_progress=0
+        result = await backend.chat(
+            model=model,
+            messages=messages,
+            stream=request_data.stream,
+            temperature=request_data.temperature,
+            top_p=request_data.top_p,
+            request_id=request_id,
+            base_url=base_url,
         )
 
-        async for item in grok_client.generate_stream(
-            prompt=prompt,
-            n=n,
-            enable_nsfw=True
-        ):
-            if item.get("type") == "progress":
-                image_id = item["image_id"]
-                stage = item["stage"]
-                completed = item["completed"]
-                total = item["total"]
+        if request_data.stream:
+            # result is an async generator
+            return StreamingResponse(result, media_type="text/event-stream")
 
-                # Hanya output saat tahap berubah
-                if image_stages.get(image_id) != stage:
-                    image_stages[image_id] = stage
-                    progress = stage_progress.get(stage, 0)
+        # Non-streaming result is a dict
+        return result
 
-                    # Hitung overall progress
-                    overall_progress = int((completed / total) * 100) if total > 0 else progress
-
-                    # Membangun konten thinking
-                    stage_names = {"preview": "Preview", "medium": "Medium", "final": "HD"}
-                    thinking_text = (
-                        f"Gambar {len(image_stages)}/{total} - "
-                        f"{stage_names.get(stage, stage)} ({progress}%)"
-                    )
-
-                    yield create_chat_chunk(
-                        chunk_id,
-                        thinking=thinking_text,
-                        thinking_progress=progress
-                    )
-
-            elif item.get("type") == "result":
-                if item.get("success"):
-                    final_urls = item.get("urls", [])
-
-                    # Output 100% selesai
-                    yield create_chat_chunk(
-                        chunk_id,
-                        thinking=f"Generate selesai! Total {len(final_urls)} gambar",
-                        thinking_progress=100
-                    )
-
-                    # Output konten akhir - menggunakan format gambar Markdown
-                    content = "Gambar telah dihasilkan untuk Anda:\n\n"
-                    for i, url in enumerate(final_urls, 1):
-                        content += f"![Gambar{i}]({url})\n\n"
-
-                    yield create_chat_chunk(chunk_id, content=content)
-
-                else:
-                    # Error
-                    error_msg = item.get("error", "Generate gagal")
-                    yield create_chat_chunk(
-                        chunk_id,
-                        content=f"Generate gagal: {error_msg}"
-                    )
-
-                # Selesai
-                yield create_chat_chunk(chunk_id, finish_reason="stop")
-                break
-
-        yield "data: [DONE]\n\n"
-
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        err = str(e)
+        if "rate_limit" in err.lower() or "429" in err:
+            raise HTTPException(status_code=429, detail=err)
+        if "unavailable" in err.lower() or "503" in err:
+            raise HTTPException(status_code=503, detail=err)
+        raise HTTPException(status_code=500, detail=err)
     except Exception as e:
-        logger.error(f"[Chat] Error generate streaming: {e}")
-        yield create_chat_chunk(chunk_id, content=f"Error generate: {str(e)}")
-        yield create_chat_chunk(chunk_id, finish_reason="stop")
-        yield "data: [DONE]\n\n"
+        logger.error(f"[Chat] [req_{request_id}] Error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/models")
 async def list_models():
-    """Menampilkan daftar model yang tersedia"""
+    """Menampilkan daftar semua model yang tersedia dari semua backend"""
     return {
         "object": "list",
-        "data": [
-            {
-                "id": "grok-imagine",
-                "object": "model",
-                "created": 1700000000,
-                "owned_by": "xai",
-                "permission": [],
-                "root": "grok-imagine",
-                "parent": None
-            }
-        ]
+        "data": backend_router.list_all_models(),
     }

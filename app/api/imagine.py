@@ -3,13 +3,13 @@
 import time
 import json
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.security import require_api_key
 from app.core.logger import logger
-from app.services.grok_client import grok_client
+from app.backends.router import backend_router
 
 
 router = APIRouter()
@@ -136,21 +136,39 @@ def validate_video_options(request: OpenAIVideoRequest):
 @router.post("/images/generations", response_model=OpenAIImageResponse)
 async def generate_image(
     request: OpenAIImageRequest,
+    fastapi_request: Request,
     _: bool = Depends(require_api_key)
 ):
     """
     Generate gambar (API kompatibel OpenAI)
 
-    Mendukung dua mode:
-    - stream=false (default): Mengembalikan hasil lengkap
-    - stream=true: Mengembalikan progress generate secara streaming (format SSE)
+    Routes to appropriate backend based on model name:
+    - grok-* models -> Grok backend
+    - gemini-* models -> Gemini backend
     """
-    logger.info(f"[API] Request generate: {request.prompt[:50]}... stream={request.stream}")
+    model = request.model or "grok-2-image"
+    logger.info(f"[Imagine] Request generate: {request.prompt[:50]}... model={model} stream={request.stream}")
 
     aspect_ratio = resolve_aspect_ratio(request)
 
-    # Mode streaming
-    if request.stream:
+    backend = backend_router.get_backend(model)
+    if backend is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model}' not found for image generation.",
+        )
+
+    # Get base_url for media file URLs
+    from app.core.config import settings
+    if settings.BASE_URL:
+        base_url = settings.BASE_URL.rstrip("/")
+    else:
+        forwarded_proto = fastapi_request.headers.get("x-forwarded-proto", fastapi_request.url.scheme)
+        forwarded_host = fastapi_request.headers.get("x-forwarded-host", fastapi_request.headers.get("host", "localhost"))
+        base_url = f"{forwarded_proto}://{forwarded_host}"
+
+    # Mode streaming (Grok only)
+    if request.stream and backend.name == "grok":
         return StreamingResponse(
             stream_generate(
                 prompt=request.prompt,
@@ -160,47 +178,48 @@ async def generate_image(
             media_type="text/event-stream"
         )
 
-    # Mode normal
-    result = await grok_client.generate(
-        prompt=request.prompt,
-        aspect_ratio=aspect_ratio,
-        n=request.n,
-        enable_nsfw=True
-    )
+    try:
+        result = await backend.generate_image(
+            prompt=request.prompt,
+            model=model,
+            n=request.n,
+            aspect_ratio=aspect_ratio,
+            response_format=request.response_format,
+            base_url=base_url,
+        )
 
-    if not result.get("success"):
-        error_msg = result.get("error", "Image generation failed")
-        error_code = result.get("error_code", "")
+        # Backend returns {"created": ..., "data": [{"url": ...}]} on success
+        # or raises RuntimeError on failure
+        result_data = result.get("data", [])
+        data = []
+        for item in result_data:
+            if item.get("b64_json"):
+                data.append(OpenAIImageData(b64_json=item["b64_json"]))
+            elif item.get("url"):
+                data.append(OpenAIImageData(url=item["url"]))
 
-        if error_code == "rate_limit_exceeded":
-            raise HTTPException(status_code=429, detail=error_msg)
-        else:
-            raise HTTPException(status_code=500, detail=error_msg)
+        if not data:
+            raise HTTPException(status_code=500, detail="No images generated")
 
-    # Kembalikan sesuai response_format secara ketat
-    if request.response_format == "b64_json":
-        # Kembalikan format base64
-        b64_list = result.get("b64_list", [])
-        data = [OpenAIImageData(b64_json=b64) for b64 in b64_list]
-    else:
-        # Kembalikan format URL
-        data = [OpenAIImageData(url=url) for url in result.get("urls", [])]
+        return OpenAIImageResponse(created=result.get("created", int(time.time())), data=data)
 
-    return OpenAIImageResponse(
-        created=int(time.time()),
-        data=data
-    )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        err = str(e)
+        if "rate_limit" in err.lower() or "429" in err:
+            raise HTTPException(status_code=429, detail=err)
+        raise HTTPException(status_code=500, detail=err)
+    except Exception as e:
+        logger.error(f"[Imagine] Error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def stream_generate(prompt: str, aspect_ratio: str, n: int):
     """
-    Generate gambar secara streaming
-
-    Output format SSE:
-    - event: progress - Update progress generate
-    - event: complete - Generate selesai, berisi URL akhir
-    - event: error - Terjadi error
+    Generate gambar secara streaming (Grok backend only)
     """
+    from app.services.grok_client import grok_client
     try:
         async for item in grok_client.generate_stream(
             prompt=prompt,
@@ -240,63 +259,83 @@ async def stream_generate(prompt: str, aspect_ratio: str, n: int):
 
 @router.get("/models/imagine")
 async def list_imagine_models():
-    """Menampilkan daftar model pembuatan gambar"""
+    """Menampilkan daftar model pembuatan gambar/video dari semua backend"""
+    all_models = backend_router.list_all_models()
+    image_video_models = [
+        m for m in all_models
+        if "image" in m["id"] or "imagine" in m["id"] or "video" in m["id"]
+        or "imagen" in m["id"] or "veo" in m["id"]
+    ]
     return {
         "object": "list",
-        "data": [
-            {
-                "id": "grok-imagine",
-                "object": "model",
-                "created": 1700000000,
-                "owned_by": "xai"
-            }
-        ]
+        "data": image_video_models
     }
 
 
 @router.post("/videos/generations", response_model=OpenAIVideoResponse)
 async def generate_video(
     request: OpenAIVideoRequest,
+    fastapi_request: Request,
     _: bool = Depends(require_api_key)
 ):
-    """Generate video (eksperimental)"""
-    logger.info(f"[API] Request video: {request.prompt[:50]}...")
+    """Generate video - routes to appropriate backend"""
+    model = request.model or "grok-2-video"
+    logger.info(f"[Video] Request: {request.prompt[:50]}... model={model}")
 
     validate_video_options(request)
     aspect_ratio = resolve_video_aspect_ratio(request)
 
-    result = await grok_client.generate_video(
-        prompt=request.prompt,
-        aspect_ratio=aspect_ratio,
-        duration_seconds=request.duration_seconds,
-        resolution=request.resolution,
-        preset=request.preset,
-        enable_nsfw=True
-    )
+    backend = backend_router.get_backend(model)
+    if backend is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{model}' not found for video generation.",
+        )
 
-    if not result.get("success"):
-        error_msg = result.get("error", "Video generation failed")
-        error_code = result.get("error_code", "")
-
-        if error_code == "rate_limit_exceeded":
-            raise HTTPException(status_code=429, detail=error_msg)
-        if error_code == "video_not_supported":
-            raise HTTPException(
-                status_code=501,
-                detail={
-                    "error": error_msg,
-                    "seen_types": result.get("seen_types", []),
-                    "image_preview_urls": result.get("image_preview_urls", [])
-                }
-            )
-        raise HTTPException(status_code=500, detail=error_msg)
-
-    if request.response_format == "b64_json":
-        data = [OpenAIVideoData(b64_json=b64) for b64 in result.get("b64_list", [])]
+    # Get base_url
+    from app.core.config import settings
+    if settings.BASE_URL:
+        base_url = settings.BASE_URL.rstrip("/")
     else:
-        data = [OpenAIVideoData(url=url) for url in result.get("urls", [])]
+        forwarded_proto = fastapi_request.headers.get("x-forwarded-proto", fastapi_request.url.scheme)
+        forwarded_host = fastapi_request.headers.get("x-forwarded-host", fastapi_request.headers.get("host", "localhost"))
+        base_url = f"{forwarded_proto}://{forwarded_host}"
 
-    return OpenAIVideoResponse(
-        created=int(time.time()),
-        data=data
-    )
+    try:
+        result = await backend.generate_video(
+            prompt=request.prompt,
+            model=model,
+            aspect_ratio=aspect_ratio,
+            duration_seconds=request.duration_seconds,
+            resolution=request.resolution,
+            preset=request.preset,
+            response_format=request.response_format,
+            base_url=base_url,
+        )
+
+        # Backend returns {"created": ..., "data": [{"url": ...}]} on success
+        result_data = result.get("data", [])
+        data = []
+        for item in result_data:
+            if item.get("b64_json"):
+                data.append(OpenAIVideoData(b64_json=item["b64_json"]))
+            elif item.get("url"):
+                data.append(OpenAIVideoData(url=item["url"]))
+
+        if not data:
+            raise HTTPException(status_code=500, detail="No video generated")
+
+        return OpenAIVideoResponse(created=result.get("created", int(time.time())), data=data)
+
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        err = str(e)
+        if "rate_limit" in err.lower() or "429" in err:
+            raise HTTPException(status_code=429, detail=err)
+        if "video_not_supported" in err.lower():
+            raise HTTPException(status_code=501, detail=err)
+        raise HTTPException(status_code=500, detail=err)
+    except Exception as e:
+        logger.error(f"[Video] Error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -39,7 +39,7 @@ from ..subscription_manager import (
     DURATION_LABELS,
     subscription_manager,
 )
-from ..ui import safe_edit_text
+from ..ui import clear_state, safe_edit_text
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ def _format_rp(amount: int) -> str:
 
 @router.callback_query(F.data == "pay:buy")
 async def pay_choose_tier(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    await clear_state(state)
     await safe_edit_text(
         callback.message,
         "🛒 <b>Beli Subscription</b>\n\nPilih tier yang ingin dibeli:",
@@ -287,7 +287,7 @@ async def pay_manual_check(callback: CallbackQuery) -> None:
 async def pay_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     txn_id = callback.data.replace("pay:cancel:", "", 1)
     await db.mark_payment_expired(txn_id)
-    await state.clear()
+    await clear_state(state)
 
     user_id = callback.from_user.id if callback.from_user else 0
     kb = subscription_admin_keyboard() if is_admin(user_id) else subscription_menu_keyboard()

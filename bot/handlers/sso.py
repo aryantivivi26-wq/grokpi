@@ -8,7 +8,7 @@ from ..keyboards import admin_menu_keyboard, sso_add_input_keyboard, sso_menu_ke
 from ..security import is_admin
 from ..sso_manager import LocalSSOManager
 from ..states import SSOFlow
-from ..ui import safe_edit_text
+from ..ui import clear_state, safe_edit_text
 
 router = Router()
 local_sso_manager = LocalSSOManager(settings.SSO_FILE)
@@ -71,7 +71,7 @@ async def add_sso_cancel(callback: CallbackQuery, state: FSMContext) -> None:
 
     data = await state.get_data()
     return_menu = data.get("sso_return_menu", "sso")
-    await state.clear()
+    await clear_state(state)
 
     if return_menu == "admin":
         await safe_edit_text(
@@ -92,7 +92,7 @@ async def add_sso_cancel(callback: CallbackQuery, state: FSMContext) -> None:
 async def add_sso_finish(message: Message, state: FSMContext) -> None:
     user_id = message.from_user.id if message.from_user else 0
     if not is_admin(user_id):
-        await state.clear()
+        await clear_state(state)
         await message.answer("Akses SSO manager ditolak")
         return
 
@@ -100,7 +100,7 @@ async def add_sso_finish(message: Message, state: FSMContext) -> None:
     return_menu = data.get("sso_return_menu", "sso")
     value = (message.text or "").strip()
     result = local_sso_manager.add_key(value)
-    await state.clear()
+    await clear_state(state)
 
     if return_menu == "admin":
         menu_text = "🛠 <b>Admin Panel</b>\nPilih aksi admin:"

@@ -25,7 +25,7 @@ from ..subscription_manager import (
     DURATION_LABELS,
     subscription_manager,
 )
-from ..ui import safe_edit_text
+from ..ui import clear_state, get_backend, safe_edit_text
 
 router = Router()
 
@@ -36,7 +36,7 @@ router = Router()
 
 @router.callback_query(F.data == "menu:subs")
 async def open_subs_menu(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    await clear_state(state)
     user_id = callback.from_user.id if callback.from_user else 0
     kb = subscription_admin_keyboard() if is_admin(user_id) else subscription_menu_keyboard()
     info = await subscription_manager.get_info_text(user_id)
@@ -119,17 +119,17 @@ async def handle_user_id(message: Message, state: FSMContext) -> None:
 
     if action == "revoke":
         revoked = await subscription_manager.revoke(target_uid)
-        await state.clear()
+        await clear_state(state)
         if revoked:
             await message.answer(f"✅ Subscription user <b>{target_uid}</b> di-revoke (kembali Free).")
         else:
             await message.answer(f"ℹ️ User <b>{target_uid}</b> tidak punya subscription aktif.")
-        await message.answer("🏠 <b>Main Menu</b>", reply_markup=main_menu_keyboard())
+        await message.answer("🏠 <b>Main Menu</b>", reply_markup=main_menu_keyboard(await get_backend(state)))
         return
 
     # grant flow: choose tier
     await state.update_data(subs_target_uid=target_uid)
-    await state.clear()
+    await clear_state(state)
     await state.update_data(subs_target_uid=target_uid)
     await message.answer(
         f"Pilih tier untuk user <b>{target_uid}</b>:",
@@ -198,7 +198,7 @@ async def grant_choose_duration(callback: CallbackQuery, state: FSMContext) -> N
         f"• Duration: <b>{DURATION_LABELS[duration]}</b>\n"
         f"• Expires: <b>{exp_text}</b>"
     )
-    await state.clear()
+    await clear_state(state)
     await safe_edit_text(callback.message, text, reply_markup=subscription_admin_keyboard())
     await callback.answer()
 
