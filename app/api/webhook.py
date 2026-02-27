@@ -134,7 +134,7 @@ async def qris_webhook(
 
 
 async def _process_webhook_payment(payment: Dict[str, Any]) -> None:
-    """Mark payment paid and grant subscription via bot's subscription manager."""
+    """Mark payment paid and grant subscription or topup quota."""
     from bot import database as db
     from bot.subscription_manager import Duration, Tier, subscription_manager
 
@@ -144,9 +144,36 @@ async def _process_webhook_payment(payment: Dict[str, Any]) -> None:
         logger.info("[Webhook] Payment %s already processed", txn_id)
         return
 
+    tier_str = payment["tier"]
+    duration_str = payment["duration"]
+
+    # --- Topup payments (tier starts with "topup_") ---
+    if tier_str.startswith("topup_"):
+        pack_id = tier_str.replace("topup_", "", 1)
+        # Import topup packs definition
+        try:
+            from bot.handlers.topup import TOPUP_PACKS
+            pack = TOPUP_PACKS.get(pack_id)
+            if pack:
+                await db.add_extra_quota(
+                    payment["user_id"],
+                    images=pack["images"],
+                    videos=pack["videos"],
+                )
+                logger.info(
+                    "[Webhook] Topup granted %s to user %s (txn=%s)",
+                    pack_id, payment["user_id"], txn_id,
+                )
+            else:
+                logger.error("[Webhook] Unknown topup pack: %s", pack_id)
+        except Exception as e:
+            logger.error("[Webhook] Topup processing error: %s", e)
+        return
+
+    # --- Subscription payments ---
     try:
-        tier_enum = Tier(payment["tier"])
-        dur_enum = Duration(payment["duration"])
+        tier_enum = Tier(tier_str)
+        dur_enum = Duration(duration_str)
     except ValueError:
         logger.error("[Webhook] Invalid tier/dur in payment: %s", payment)
         return
