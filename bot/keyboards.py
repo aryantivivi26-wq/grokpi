@@ -4,42 +4,54 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🖼 Generate Image", callback_data="menu:image")],
-            [InlineKeyboardButton(text="🎬 Generate Video", callback_data="menu:video")],
-            [InlineKeyboardButton(text="📈 My Limit", callback_data="menu:limit")],
-            [InlineKeyboardButton(text="🛠 Admin Panel", callback_data="menu:admin")],
-            [InlineKeyboardButton(text="🔐 SSO Manager", callback_data="menu:sso")],
-            [InlineKeyboardButton(text="📊 Quick Status", callback_data="menu:status")],
-            [InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")],
+            [
+                InlineKeyboardButton(text="🖼 Image", callback_data="menu:image"),
+                InlineKeyboardButton(text="🎬 Video", callback_data="menu:video"),
+            ],
+            [
+                InlineKeyboardButton(text="💎 Subscription", callback_data="menu:subs"),
+                InlineKeyboardButton(text="📈 My Limit", callback_data="menu:limit"),
+            ],
+            [InlineKeyboardButton(text="🧹 Clean Chat", callback_data="menu:clean")],
         ]
     )
 
 
-def image_menu_keyboard(selected_aspect: str, selected_n: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Aspect Ratio", callback_data="noop")],
-            [
-                InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '1:1' else ''}1:1", callback_data="img:aspect:1:1"),
-                InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '2:3' else ''}2:3", callback_data="img:aspect:2:3"),
-                InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '3:2' else ''}3:2", callback_data="img:aspect:3:2"),
-            ],
-            [
-                InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '9:16' else ''}9:16", callback_data="img:aspect:9:16"),
-                InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '16:9' else ''}16:9", callback_data="img:aspect:16:9"),
-            ],
-            [InlineKeyboardButton(text="Jumlah Gambar", callback_data="noop")],
-            [
-                InlineKeyboardButton(text=f"{'✅ ' if selected_n == 1 else ''}1", callback_data="img:n:1"),
-                InlineKeyboardButton(text=f"{'✅ ' if selected_n == 2 else ''}2", callback_data="img:n:2"),
-                InlineKeyboardButton(text=f"{'✅ ' if selected_n == 3 else ''}3", callback_data="img:n:3"),
-                InlineKeyboardButton(text=f"{'✅ ' if selected_n == 4 else ''}4", callback_data="img:n:4"),
-            ],
-            [InlineKeyboardButton(text="✍️ Enter Prompt", callback_data="img:prompt")],
-            [InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")],
-            [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
-        ]
-    )
+def image_menu_keyboard(selected_aspect: str, selected_n: int, max_n: int = 4, max_batch: int = 1) -> InlineKeyboardMarkup:
+    n_buttons = []
+    for i in range(1, max_n + 1):
+        n_buttons.append(
+            InlineKeyboardButton(
+                text=f"{'✅ ' if selected_n == i else ''}{i}",
+                callback_data=f"img:n:{i}",
+            )
+        )
+
+    rows = [
+        [InlineKeyboardButton(text="Aspect Ratio", callback_data="noop")],
+        [
+            InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '1:1' else ''}1:1", callback_data="img:aspect:1:1"),
+            InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '2:3' else ''}2:3", callback_data="img:aspect:2:3"),
+            InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '3:2' else ''}3:2", callback_data="img:aspect:3:2"),
+        ],
+        [
+            InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '9:16' else ''}9:16", callback_data="img:aspect:9:16"),
+            InlineKeyboardButton(text=f"{'✅ ' if selected_aspect == '16:9' else ''}16:9", callback_data="img:aspect:16:9"),
+        ],
+        [InlineKeyboardButton(text="Jumlah Gambar", callback_data="noop")],
+        n_buttons,
+        [InlineKeyboardButton(text="✍️ Enter Prompt", callback_data="img:prompt")],
+    ]
+
+    if max_batch > 1:
+        rows.append(
+            [InlineKeyboardButton(text=f"📝 Batch Prompt (max {max_batch})", callback_data="img:batch")]
+        )
+
+    rows.append([InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")])
+    rows.append([InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def video_menu_keyboard(aspect: str, duration: int, resolution: str, preset: str) -> InlineKeyboardMarkup:
@@ -163,5 +175,121 @@ def sso_add_input_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="❌ Cancel", callback_data="sso:add:cancel")],
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Subscription keyboards
+# ---------------------------------------------------------------------------
+
+def subscription_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 My Subscription", callback_data="subs:info")],
+            [InlineKeyboardButton(text="📊 Tier Comparison", callback_data="subs:tiers")],
+            [InlineKeyboardButton(text="🛒 Beli Subscription", callback_data="pay:buy")],
+            [InlineKeyboardButton(text="📜 Riwayat Pembayaran", callback_data="pay:history")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
+        ]
+    )
+
+
+def subscription_admin_keyboard() -> InlineKeyboardMarkup:
+    """Extra admin buttons for subscription management."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 My Subscription", callback_data="subs:info")],
+            [InlineKeyboardButton(text="📊 Tier Comparison", callback_data="subs:tiers")],
+            [InlineKeyboardButton(text="🛒 Beli Subscription", callback_data="pay:buy")],
+            [InlineKeyboardButton(text="📜 Riwayat Pembayaran", callback_data="pay:history")],
+            [InlineKeyboardButton(text="➕ Grant Sub (admin)", callback_data="subs:grant")],
+            [InlineKeyboardButton(text="🗑 Revoke Sub (admin)", callback_data="subs:revoke")],
+            [InlineKeyboardButton(text="📃 Active Subs (admin)", callback_data="subs:list")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
+        ]
+    )
+
+
+def grant_tier_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⭐ Basic", callback_data="subs:grant:basic"),
+                InlineKeyboardButton(text="💎 Premium", callback_data="subs:grant:premium"),
+            ],
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="menu:subs")],
+        ]
+    )
+
+
+def grant_duration_keyboard(tier: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📅 1 Hari", callback_data=f"subs:dur:{tier}:daily")],
+            [InlineKeyboardButton(text="📅 7 Hari", callback_data=f"subs:dur:{tier}:weekly")],
+            [InlineKeyboardButton(text="📅 30 Hari", callback_data=f"subs:dur:{tier}:monthly")],
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="menu:subs")],
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Payment keyboards
+# ---------------------------------------------------------------------------
+
+def pay_tier_keyboard() -> InlineKeyboardMarkup:
+    """Choose which tier to buy."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Basic", callback_data="pay:tier:basic")],
+            [InlineKeyboardButton(text="💎 Premium", callback_data="pay:tier:premium")],
+            [InlineKeyboardButton(text="❌ Batal", callback_data="menu:subs")],
+        ]
+    )
+
+
+def pay_duration_keyboard(tier: str, prices: dict) -> InlineKeyboardMarkup:
+    """Choose duration+see price."""
+    rows = []
+    for dur_key, label in [("daily", "1 Hari"), ("weekly", "7 Hari"), ("monthly", "30 Hari")]:
+        price = prices.get(f"{tier}_{dur_key}", 0)
+        rows.append([
+            InlineKeyboardButton(
+                text=f"📅 {label} — Rp {price:,}".replace(",", "."),
+                callback_data=f"pay:dur:{tier}:{dur_key}",
+            )
+        ])
+    rows.append([InlineKeyboardButton(text="⬅️ Kembali", callback_data="pay:buy")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def pay_confirm_keyboard(tier: str, duration: str, amount: int) -> InlineKeyboardMarkup:
+    """Confirm before creating QRIS."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"✅ Bayar Rp {amount:,}".replace(",", "."),
+                callback_data=f"pay:confirm:{tier}:{duration}",
+            )],
+            [InlineKeyboardButton(text="❌ Batal", callback_data="pay:buy")],
+        ]
+    )
+
+
+def pay_waiting_keyboard(transaction_id: str) -> InlineKeyboardMarkup:
+    """Shown while waiting for payment — manual check + cancel."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Cek Status Pembayaran", callback_data=f"pay:check:{transaction_id}")],
+            [InlineKeyboardButton(text="❌ Batalkan", callback_data=f"pay:cancel:{transaction_id}")],
+        ]
+    )
+
+
+def pay_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Kembali", callback_data="menu:subs")],
         ]
     )

@@ -22,3 +22,9 @@ key.txt
 data/images/
 data/videos/
 video_test_result.json
+bot.db
+bot.db-shm
+bot.db-wal
+*.db
+*.db-shm
+*.db-wal

@@ -22,8 +22,15 @@ class BotSettings(BaseSettings):
     GATEWAY_API_KEY: str = Field(default="")
     API_KEY: str = Field(default="")
     REQUEST_TIMEOUT_SECONDS: int = 240
-    USER_DAILY_IMAGE_LIMIT: int = 5
-    USER_DAILY_VIDEO_LIMIT: int = 1
+    USER_DAILY_IMAGE_LIMIT: int = 20
+    USER_DAILY_VIDEO_LIMIT: int = 10
+
+    # --- QRIS Payment Gateway ---
+    QRIS_API_KEY: str = Field(default="", validation_alias=AliasChoices("QRIS_API_KEY", "QRIS_KEY"))
+    QRIS_WEBHOOK_SECRET: str = Field(default="", validation_alias=AliasChoices("QRIS_WEBHOOK_SECRET", "QRIS_SECRET"))
+    QRIS_BASE_URL: str = "https://qris.hubify.store"
+    QRIS_POLL_INTERVAL: int = 10     # seconds between status checks
+    QRIS_POLL_TIMEOUT: int = 900     # 15 minutes max polling
 
     SSO_FILE: Path = ROOT_DIR / "key.txt"
     LIMITS_STATE_FILE: Path = ROOT_DIR / "user_limits_state.json"

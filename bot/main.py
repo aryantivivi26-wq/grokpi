@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -7,6 +8,10 @@ from aiogram.types import ErrorEvent
 
 from .config import settings
 from .handlers import get_routers
+from . import database as db
+from .cleanup_scheduler import midnight_cleaner
+
+logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
@@ -14,6 +19,17 @@ async def main() -> None:
         raise RuntimeError("TELEGRAM_BOT_TOKEN belum diisi di .env")
 
     logging.basicConfig(level=logging.INFO)
+
+    # --- Initialize SQLite database ---
+    await db.get_db()
+    logger.info("[Bot] SQLite database initialized at %s", db.DB_PATH)
+
+    # --- Migrate old JSON files if they exist ---
+    subs_json = Path(settings.LIMITS_STATE_FILE).parent / "subscriptions.json"
+    if settings.LIMITS_STATE_FILE.exists() or subs_json.exists():
+        stats = await db.migrate_from_json(settings.LIMITS_STATE_FILE, subs_json)
+        if stats["subscriptions"] or stats["usage"]:
+            logger.info("[Bot] JSON migration: %s", stats)
 
     bot = Bot(
         token=settings.TELEGRAM_BOT_TOKEN,
@@ -33,7 +49,15 @@ async def main() -> None:
             except Exception:
                 pass
 
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    # --- Start midnight cleanup scheduler ---
+    midnight_cleaner.start(bot=bot, admin_ids=settings.admin_ids)
+
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        midnight_cleaner.stop()
+        await db.close_db()
+        logger.info("[Bot] Shutdown complete")
 
 
 if __name__ == "__main__":

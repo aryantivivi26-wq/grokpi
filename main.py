@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.api.imagine import router as imagine_router
 from app.api.chat import router as chat_router
 from app.api.admin import router as admin_router
+from app.api.webhook import router as webhook_router
 from app.core.config import settings
 from app.core.logger import logger, get_uvicorn_log_config
 from app.services.sso_manager import sso_manager
@@ -141,6 +142,7 @@ app.mount("/videos", StaticFiles(directory=str(settings.VIDEOS_DIR)), name="vide
 app.include_router(chat_router, prefix="/v1", tags=["Chat"])
 app.include_router(imagine_router, prefix="/v1", tags=["Images"])
 app.include_router(admin_router, prefix="/admin", tags=["Admin"])
+app.include_router(webhook_router, tags=["Webhook"])
 
 
 @app.get("/")

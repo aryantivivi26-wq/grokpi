@@ -90,6 +90,12 @@ class GatewayClient:
     async def delete_video(self, filename: str) -> Dict[str, Any]:
         return await self._request("DELETE", f"/admin/media/video/{filename}")
 
+    async def clear_images(self) -> Dict[str, Any]:
+        return await self._request("DELETE", "/admin/images/clear")
+
+    async def clear_videos(self) -> Dict[str, Any]:
+        return await self._request("DELETE", "/admin/videos/clear")
+
     async def _request(self, method: str, path: str) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         async with aiohttp.ClientSession(timeout=self.timeout) as session:

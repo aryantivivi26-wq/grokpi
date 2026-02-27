@@ -144,6 +144,20 @@ async def clear_images():
     return {"success": True, "deleted": count}
 
 
+@router.delete("/videos/clear")
+async def clear_videos():
+    """Menghapus cache video"""
+    count = 0
+    if settings.VIDEOS_DIR.exists():
+        for f in settings.VIDEOS_DIR.glob("*"):
+            if f.is_file():
+                f.unlink()
+                count += 1
+
+    logger.info(f"[Admin] Telah menghapus {count} video")
+    return {"success": True, "deleted": count}
+
+
 @router.delete("/media/image/{filename}")
 async def delete_image(filename: str):
     """Hapus satu file gambar"""

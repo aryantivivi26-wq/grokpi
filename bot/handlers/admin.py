@@ -93,7 +93,6 @@ async def open_admin_menu(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "admin:status")
-@router.callback_query(F.data == "menu:status")
 async def admin_status(callback: CallbackQuery) -> None:
     if not _ensure_admin(callback):
         await callback.answer("Akses admin ditolak", show_alert=True)
