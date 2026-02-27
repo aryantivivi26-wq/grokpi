@@ -28,7 +28,7 @@ class BotSettings(BaseSettings):
     # --- QRIS Payment Gateway ---
     QRIS_API_KEY: str = Field(default="", validation_alias=AliasChoices("QRIS_API_KEY", "QRIS_KEY"))
     QRIS_WEBHOOK_SECRET: str = Field(default="", validation_alias=AliasChoices("QRIS_WEBHOOK_SECRET", "QRIS_SECRET"))
-    QRIS_BASE_URL: str = "https://qris.hubify.store"
+    QRIS_BASE_URL: str = "https://qris.hubify.store/api"
     QRIS_POLL_INTERVAL: int = 10     # seconds between status checks
     QRIS_POLL_TIMEOUT: int = 900     # 15 minutes max polling
 
