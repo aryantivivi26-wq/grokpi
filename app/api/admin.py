@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.config import settings
 from app.core.logger import logger
 from app.core.security import require_api_key
+from app.services.cf_solver import cf_solver
 
 # Pilih SSO manager berdasarkan konfigurasi
 if settings.REDIS_ENABLED:
@@ -43,6 +44,7 @@ async def get_status():
     return {
         "service": "running",
         "sso": sso_status,
+        "cf_solver": cf_solver.get_status(),
         "proxy": proxy_config if proxy_config else "none",
         "config": {
             "host": settings.HOST,
@@ -77,6 +79,17 @@ async def reset_sso_usage():
         logger.info("[Admin] Reset manual jumlah penggunaan harian")
         return {"success": True, "message": "Jumlah penggunaan harian telah direset"}
     return {"success": False, "message": "Fitur ini hanya tersedia dalam mode Redis"}
+
+
+@router.post("/cf/refresh")
+async def refresh_cf_clearance():
+    """Refresh cf_clearance secara manual via FlareSolverr"""
+    success = await cf_solver.refresh_once()
+    return {
+        "success": success,
+        "cf_clearance_set": bool(settings.CF_CLEARANCE),
+        "cf_clearance_prefix": settings.CF_CLEARANCE[:20] + "..." if settings.CF_CLEARANCE else "",
+    }
 
 
 @router.get("/images/list")

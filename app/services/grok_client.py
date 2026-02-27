@@ -25,6 +25,15 @@ except ImportError:
 from app.core.config import settings
 from app.core.logger import logger
 
+# Lazy import cf_solver untuk menghindari circular
+_cf_solver = None
+def _get_cf_solver():
+    global _cf_solver
+    if _cf_solver is None:
+        from app.services.cf_solver import cf_solver
+        _cf_solver = cf_solver
+    return _cf_solver
+
 # Pilih SSO manager berdasarkan konfigurasi
 if settings.REDIS_ENABLED:
     from app.services.redis_sso_manager import create_sso_manager
@@ -114,21 +123,34 @@ class GrokImagineClient:
 
         statsig_message = self._generate_statsig_message()
 
+        # Gunakan UA dari FlareSolverr jika tersedia (cf_clearance terikat ke UA)
+        solver = _get_cf_solver()
+        if solver and solver.user_agent:
+            ua = solver.user_agent
+            # Extract Chrome version untuk Sec-Ch-Ua
+            import re as _re
+            chrome_match = _re.search(r'Chrome/(\d+)', ua)
+            chrome_ver = chrome_match.group(1) if chrome_match else "133"
+            sec_ch_ua = f'"Google Chrome";v="{chrome_ver}", "Chromium";v="{chrome_ver}", "Not(A:Brand";v="24"'
+            platform = '"Linux"' if 'Linux' in ua else '"Windows"'
+        else:
+            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            sec_ch_ua = '"Google Chrome";v="133", "Chromium";v="133", "Not(A:Brand";v="24"'
+            platform = '"Windows"'
+
         return {
             "Cookie": cookie,
             "Origin": "https://grok.com",
             "Referer": referer,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "User-Agent": ua,
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Content-Type": "application/json",
             "Accept-Language": "en-US,en;q=0.9",
             "Baggage": "sentry-environment=production,sentry-release=d6add6fb0460641fd482d767a335ef72b9b6abb8,sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c",
-            "Sec-Ch-Ua": '"Google Chrome";v="133", "Chromium";v="133", "Not(A:Brand";v="24"',
+            "Sec-Ch-Ua": sec_ch_ua,
             "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Ch-Ua-Arch": "x86",
-            "Sec-Ch-Ua-Bitness": "64",
+            "Sec-Ch-Ua-Platform": platform,
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
@@ -975,7 +997,11 @@ class GrokImagineClient:
         preset: str,
         enable_nsfw: bool
     ) -> Dict[str, Any]:
-        if CURL_CFFI_AVAILABLE:
+        # Jika FlareSolverr aktif, langsung pakai aiohttp (UA sudah match cf_clearance)
+        solver = _get_cf_solver()
+        use_aiohttp_first = solver and solver.user_agent and settings.CF_CLEARANCE
+
+        if CURL_CFFI_AVAILABLE and not use_aiohttp_first:
             try:
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
@@ -995,9 +1021,18 @@ class GrokImagineClient:
                     if urls:
                         saved_url = await self._save_video_output(urls[0], "", sso=sso)
                         result["urls"] = [saved_url]
-                return result
+                    return result
+
+                # Jika 403 Cloudflare, fallback ke aiohttp
+                error_text = result.get("error", "")
+                if "(403)" in error_text or "Just a moment" in error_text:
+                    logger.info("[Grok-Video] curl_cffi mendapat 403, fallback ke aiohttp...")
+                else:
+                    return result
             except Exception as e:
                 logger.warning(f"[Grok-Video] curl flow gagal, fallback aiohttp: {e}")
+        elif use_aiohttp_first:
+            logger.info("[Grok-Video] FlareSolverr aktif, menggunakan aiohttp dengan UA yang match")
 
         connector = self._get_connector()
 

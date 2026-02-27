@@ -20,6 +20,7 @@ from app.api.admin import router as admin_router
 from app.core.config import settings
 from app.core.logger import logger, get_uvicorn_log_config
 from app.services.sso_manager import sso_manager
+from app.services.cf_solver import cf_solver
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -74,8 +75,12 @@ async def lifespan(app: FastAPI):
     settings.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     settings.VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Auto-refresh CF_CLEARANCE via FlareSolverr (jika tersedia)
+    await cf_solver.start()
+
     yield
 
+    await cf_solver.stop()
     logger.info("Grok Imagine API Gateway telah ditutup")
 
 

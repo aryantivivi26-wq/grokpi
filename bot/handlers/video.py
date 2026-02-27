@@ -1,3 +1,4 @@
+import html
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -209,7 +210,7 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
         video_url = item.get("video_url") or item.get("url")
 
         if not video_url:
-            await wait_msg.edit_text(f"Gagal: response kosong\n{payload}")
+            await wait_msg.edit_text("❌ Gagal: video URL tidak ditemukan di response.")
         else:
             try:
                 await wait_msg.delete()
@@ -253,7 +254,26 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
                     is_admin_user=admin_user,
                 )
     except Exception as exc:
-        await wait_msg.edit_text(f"❌ Generate video gagal: {exc}")
+        exc_str = str(exc)
+        if "403" in exc_str and ("Just a moment" in exc_str or "DOCTYPE" in exc_str or "Cloudflare" in exc_str):
+            err_msg = (
+                "❌ <b>Generate video gagal: Cloudflare Block (403)</b>\n\n"
+                "Gateway ditolak oleh Cloudflare karena IP server berbeda dari IP saat mengambil "
+                "<code>CF_CLEARANCE</code>.\n\n"
+                "<b>Solusi:</b> Jalankan gateway di local PC kamu, lalu update "
+                "<code>CF_CLEARANCE</code> di file <code>.env</code>."
+            )
+        elif "rate_limit" in exc_str or "429" in exc_str:
+            err_msg = "❌ <b>Rate limit</b>: SSO key sudah mencapai batas. Coba beberapa saat lagi."
+        elif "401" in exc_str or "unauthorized" in exc_str.lower():
+            err_msg = "❌ <b>Unauthorized</b>: SSO token tidak valid atau sudah kadaluarsa."
+        else:
+            short = html.escape(exc_str[:300])
+            err_msg = f"❌ <b>Generate video gagal:</b>\n<code>{short}</code>"
+        try:
+            await wait_msg.edit_text(err_msg)
+        except Exception:
+            await wait_msg.edit_text("❌ Generate video gagal.")
 
     await state.clear()
     await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard())

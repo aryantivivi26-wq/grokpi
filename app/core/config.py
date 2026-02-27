@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     SSO_ROTATION_STRATEGY: str = "hybrid"  # Strategi rotasi: round_robin/least_used/least_recent/weighted/hybrid
     SSO_DAILY_LIMIT: int = 10  # Batas jumlah per key setiap 24 jam
 
+    # FlareSolverr (auto-refresh CF_CLEARANCE)
+    FLARESOLVERR_URL: str = "http://localhost:8191"  # URL FlareSolverr
+    CF_REFRESH_INTERVAL: int = 3600  # Refresh cf_clearance setiap N detik
+
     def get_base_url(self) -> str:
         """Mendapatkan URL dasar gambar, jika tidak diatur akan dibuat otomatis dari HOST:PORT"""
         if self.BASE_URL:
