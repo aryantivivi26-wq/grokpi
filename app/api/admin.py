@@ -1,8 +1,11 @@
 """Admin API Routes"""
 
 import asyncio
+import json
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Optional
 from app.core.config import settings
 from app.core.logger import logger
 from app.core.security import require_api_key
@@ -184,3 +187,42 @@ async def delete_video(filename: str):
     target.unlink()
     logger.info(f"[Admin] Hapus video: {safe_name}")
     return {"success": True, "deleted": safe_name}
+
+
+class GeminiReloadRequest(BaseModel):
+    accounts_config: Optional[str] = None
+
+
+@router.post("/gemini/reload")
+async def reload_gemini(body: GeminiReloadRequest = GeminiReloadRequest()):
+    """Reload Gemini backend with new accounts config."""
+    from app.backends.router import backend_router
+
+    gemini = backend_router.get_backend_by_name("gemini")
+    if gemini is None:
+        raise HTTPException(status_code=404, detail="Gemini backend not registered")
+
+    # If new config is provided, update the env/settings
+    new_config = body.accounts_config
+    if new_config:
+        try:
+            # Validate JSON
+            parsed = json.loads(new_config)
+            if not isinstance(parsed, list):
+                raise ValueError("Expected JSON array")
+            settings.GEMINI_ACCOUNTS_CONFIG = new_config
+            import os
+            os.environ["GEMINI_ACCOUNTS_CONFIG"] = new_config
+        except (json.JSONDecodeError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=f"Invalid accounts_config JSON: {e}")
+
+    # Re-initialize the Gemini backend
+    try:
+        await gemini.shutdown()
+        await gemini.initialize()
+        account_count = len(gemini._multi_account_mgr.accounts) if gemini._multi_account_mgr else 0
+        logger.info(f"[Admin] Gemini reloaded with {account_count} accounts")
+        return {"success": True, "accounts": account_count}
+    except Exception as e:
+        logger.error(f"[Admin] Gemini reload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Gemini reload failed: {e}")

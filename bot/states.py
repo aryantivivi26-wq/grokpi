@@ -26,5 +26,11 @@ class BroadcastFlow(StatesGroup):
     waiting_message = State()     # admin composing broadcast message
 
 
+class GeminiFlow(StatesGroup):
+    waiting_secure_c_ses = State()
+    waiting_host_c_oses = State()
+    waiting_csesidx = State()
+
+
 class AdminUserFlow(StatesGroup):
     waiting_user_id = State()     # admin entering user ID for subs assign

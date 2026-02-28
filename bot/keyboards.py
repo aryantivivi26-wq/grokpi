@@ -157,6 +157,7 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔄 Reload SSO", callback_data="admin:reload_sso"),
             ],
             [InlineKeyboardButton(text="➕ Add SSO Key", callback_data="admin:add_key")],
+            [InlineKeyboardButton(text="💎 Gemini Accounts", callback_data="menu:gemini")],
             [InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")],
             [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
         ]
@@ -235,6 +236,36 @@ def sso_add_input_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="❌ Cancel", callback_data="sso:add:cancel")],
+        ]
+    )
+
+
+def gemini_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Add Gemini Account", callback_data="gem:add")],
+            [InlineKeyboardButton(text="📋 List Accounts", callback_data="gem:list")],
+            [InlineKeyboardButton(text="➖ Remove Last Account", callback_data="gem:remove_last")],
+            [InlineKeyboardButton(text="🔄 Reload to Gateway", callback_data="gem:reload")],
+            [InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:admin")],
+        ]
+    )
+
+
+def gemini_input_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="gem:add:cancel")],
+        ]
+    )
+
+
+def gemini_skip_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Skip (kosong)", callback_data="gem:skip")],
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="gem:add:cancel")],
         ]
     )
 

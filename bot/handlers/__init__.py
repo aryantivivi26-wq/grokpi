@@ -1,6 +1,7 @@
 from .admin import router as admin_router
 from .admin_users import router as admin_users_router
 from .common import router as common_router
+from .gemini import router as gemini_router
 from .image import router as image_router
 from .leaderboard import router as leaderboard_router
 from .payment import router as payment_router
@@ -24,4 +25,5 @@ def get_routers():
         admin_router,
         admin_users_router,
         sso_router,
+        gemini_router,
     ]
