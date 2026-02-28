@@ -33,7 +33,7 @@ class BotSettings(BaseSettings):
     QRIS_POLL_TIMEOUT: int = 900     # 15 minutes max polling
 
     SSO_FILE: Path = ROOT_DIR / "key.txt"
-    LIMITS_STATE_FILE: Path = ROOT_DIR / "user_limits_state.json"
+    LIMITS_STATE_FILE: Path = ROOT_DIR / "db" / "user_limits_state.json"
 
     class Config:
         env_file = str(ROOT_DIR / ".env")
