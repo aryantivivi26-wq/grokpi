@@ -670,7 +670,22 @@ class GeminiBackendClient(BackendClient):
         if not request_id:
             request_id = str(uuid.uuid4())[:6]
 
-        messages = [{"role": "user", "content": prompt}]
+        # Gemini tidak support aspect_ratio sebagai parameter API,
+        # jadi kita sematkan instruksi rasio ke dalam prompt
+        ASPECT_LABELS = {
+            "1:1": "square (1:1)",
+            "2:3": "portrait (2:3)",
+            "3:2": "landscape (3:2)",
+            "9:16": "tall portrait (9:16)",
+            "16:9": "wide landscape (16:9)",
+        }
+        ratio_hint = ASPECT_LABELS.get(aspect_ratio, "")
+        if ratio_hint:
+            enhanced_prompt = f"{prompt}. Generate this image in {ratio_hint} aspect ratio."
+        else:
+            enhanced_prompt = prompt
+
+        messages = [{"role": "user", "content": enhanced_prompt}]
         result = await self.chat(
             model=model,
             messages=messages,
