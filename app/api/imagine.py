@@ -191,6 +191,11 @@ async def generate_image(
         # Backend returns {"created": ..., "data": [{"url": ...}]} on success
         # or raises RuntimeError on failure
         result_data = result.get("data", [])
+
+        # Trim ke jumlah yang diminta (Gemini kadang return lebih dari n)
+        if len(result_data) > request.n:
+            result_data = result_data[:request.n]
+
         data = []
         for item in result_data:
             if item.get("b64_json"):
