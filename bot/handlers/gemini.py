@@ -54,7 +54,7 @@ async def list_gemini_accounts(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ---- Add Account Flow (3 steps: secure_c_ses -> host_c_oses -> csesidx) ----
+# ---- Add Account Flow (4 steps: secure_c_ses -> host_c_oses -> csesidx -> config_id) ----
 
 @router.callback_query(F.data == "gem:add")
 async def add_gemini_start(callback: CallbackQuery, state: FSMContext) -> None:
@@ -66,7 +66,7 @@ async def add_gemini_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(GeminiFlow.waiting_secure_c_ses)
     await safe_edit_text(
         callback.message,
-        "🔑 <b>Step 1/3</b>\n"
+        "🔑 <b>Step 1/4</b>\n"
         "Kirim value <b>__Secure-C_SES</b>:",
         reply_markup=gemini_input_keyboard(),
     )
@@ -100,7 +100,7 @@ async def add_gemini_step1(message: Message, state: FSMContext) -> None:
     await state.update_data(secure_c_ses=value)
     await state.set_state(GeminiFlow.waiting_host_c_oses)
     await message.answer(
-        "🔑 <b>Step 2/3</b>\n"
+        "🔑 <b>Step 2/4</b>\n"
         "Kirim value <b>__Host-C_OSES</b>:\n\n"
         "Tekan Skip jika tidak ada.",
         reply_markup=gemini_skip_keyboard(),
@@ -113,7 +113,7 @@ async def skip_host_c_oses(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(GeminiFlow.waiting_csesidx)
     await safe_edit_text(
         callback.message,
-        "🔑 <b>Step 3/3</b>\n"
+        "🔑 <b>Step 3/4</b>\n"
         "Kirim value <b>csesidx</b> (angka):",
         reply_markup=gemini_input_keyboard(),
     )
@@ -131,7 +131,7 @@ async def add_gemini_step2(message: Message, state: FSMContext) -> None:
     await state.update_data(host_c_oses=value)
     await state.set_state(GeminiFlow.waiting_csesidx)
     await message.answer(
-        "🔑 <b>Step 3/3</b>\n"
+        "🔑 <b>Step 3/4</b>\n"
         "Kirim value <b>csesidx</b> (angka):",
         reply_markup=gemini_input_keyboard(),
     )
@@ -145,26 +145,65 @@ async def add_gemini_step3(message: Message, state: FSMContext) -> None:
         return
 
     csesidx = (message.text or "").strip()
+    await state.update_data(csesidx=csesidx)
+    await state.set_state(GeminiFlow.waiting_config_id)
+    await message.answer(
+        "🔑 <b>Step 4/4</b>\n"
+        "Kirim <b>config_id</b> (UUID dari Gemini Business workspace):\n\n"
+        "Tekan Skip untuk auto-generate.",
+        reply_markup=gemini_skip_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "gem:skip", GeminiFlow.waiting_config_id)
+async def skip_config_id(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await clear_state(state)
 
     result = gemini_mgr.add_account(
         secure_c_ses=data.get("secure_c_ses", ""),
         host_c_oses=data.get("host_c_oses", ""),
-        csesidx=csesidx,
+        csesidx=data.get("csesidx", ""),
+        config_id="",
+    )
+    await _finish_add(callback.message, result)
+    await callback.answer()
+
+
+@router.message(GeminiFlow.waiting_config_id)
+async def add_gemini_step4(message: Message, state: FSMContext) -> None:
+    user_id = message.from_user.id if message.from_user else 0
+    if not is_admin(user_id):
+        await clear_state(state)
+        return
+
+    config_id = (message.text or "").strip()
+    data = await state.get_data()
+    await clear_state(state)
+
+    result = gemini_mgr.add_account(
+        secure_c_ses=data.get("secure_c_ses", ""),
+        host_c_oses=data.get("host_c_oses", ""),
+        csesidx=data.get("csesidx", ""),
+        config_id=config_id,
     )
 
+    await _finish_add(message, result)
+
+
+async def _finish_add(target: Message, result: dict) -> None:
+    """Common finalizer for add-account flow."""
     if result["status"] == "error":
-        await message.answer(f"❌ {result['message']}")
-        await message.answer(
+        await target.answer(f"❌ {result['message']}")
+        await target.answer(
             "💎 <b>Gemini Account Manager</b>",
             reply_markup=gemini_menu_keyboard(),
         )
         return
 
     if result["status"] == "exists":
-        await message.answer(f"⚠️ {result['message']}")
-        await message.answer(
+        await target.answer(f"⚠️ {result['message']}")
+        await target.answer(
             "💎 <b>Gemini Account Manager</b>",
             reply_markup=gemini_menu_keyboard(),
         )
@@ -176,7 +215,7 @@ async def add_gemini_step3(message: Message, state: FSMContext) -> None:
         reload_result = await gateway_client.reload_gemini(accounts_json)
         before = result.get("before_count", 0)
         after = result.get("after_count", 0)
-        await message.answer(
+        await target.answer(
             f"✅ {result['message']}\n"
             f"Total: {before} → {after}\n"
             f"🔄 Gateway reload: {reload_result}"
@@ -184,13 +223,13 @@ async def add_gemini_step3(message: Message, state: FSMContext) -> None:
     except Exception as exc:
         before = result.get("before_count", 0)
         after = result.get("after_count", 0)
-        await message.answer(
+        await target.answer(
             f"✅ {result['message']}\n"
             f"Total: {before} → {after}\n"
             f"⚠️ Gateway reload gagal: {exc}"
         )
 
-    await message.answer(
+    await target.answer(
         "💎 <b>Gemini Account Manager</b>",
         reply_markup=gemini_menu_keyboard(),
     )

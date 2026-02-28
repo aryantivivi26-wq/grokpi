@@ -30,6 +30,7 @@ class GeminiFlow(StatesGroup):
     waiting_secure_c_ses = State()
     waiting_host_c_oses = State()
     waiting_csesidx = State()
+    waiting_config_id = State()
 
 
 class AdminUserFlow(StatesGroup):

@@ -95,7 +95,9 @@ class LocalGeminiManager:
             else:
                 masked = ses[:3] + "***"
             csesidx = acc.get("csesidx", "?")
-            result.append(f"{idx}. {masked} (idx: {csesidx})")
+            cfg = acc.get("config_id", "?")
+            cfg_short = cfg[:8] + "…" if len(cfg) > 8 else cfg
+            result.append(f"{idx}. {masked} (idx: {csesidx}, cfg: {cfg_short})")
         return result
 
     def get_config_json(self) -> str:
