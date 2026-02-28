@@ -66,23 +66,36 @@ class SSOManager:
         import hashlib
         return hashlib.md5(sso.encode()).hexdigest()[:12]
 
+    def _parse_tokens(self, text: str):
+        """Parse token dari teks (satu per baris)"""
+        for line in text.splitlines():
+            sso = line.strip()
+            if sso and not sso.startswith('#'):
+                self._sso_list.append(sso)
+                if sso not in self._usage:
+                    self._usage[sso] = KeyUsage(first_used=time.time())
+
     def load_sso_list(self) -> int:
-        """Memuat daftar SSO dari file"""
+        """Memuat daftar SSO dari env SSO_TOKENS atau file"""
         self._sso_list = []
 
-        sso_file = settings.SSO_FILE
-        if not sso_file.exists():
-            logger.warning(f"[SSO] File tidak ada: {sso_file}")
-            return 0
+        # Prioritas 1: Environment variable SSO_TOKENS
+        if settings.SSO_TOKENS:
+            logger.info("[SSO] Memuat dari environment variable SSO_TOKENS")
+            self._parse_tokens(settings.SSO_TOKENS)
+        else:
+            # Prioritas 2: File SSO
+            sso_file = settings.SSO_FILE
+            if not sso_file.exists() or sso_file.is_dir():
+                if sso_file.is_dir():
+                    logger.warning(f"[SSO] '{sso_file}' adalah direktori, bukan file. Set SSO_TOKENS env atau perbaiki volume mount.")
+                else:
+                    logger.warning(f"[SSO] File tidak ada: {sso_file}")
+                return 0
 
-        with open(sso_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                sso = line.strip()
-                if sso and not sso.startswith('#'):
-                    self._sso_list.append(sso)
-                    # Inisialisasi statistik penggunaan
-                    if sso not in self._usage:
-                        self._usage[sso] = KeyUsage(first_used=time.time())
+            logger.info(f"[SSO] Memuat dari file: {sso_file}")
+            with open(sso_file, 'r', encoding='utf-8') as f:
+                self._parse_tokens(f.read())
 
         # Muat status persisten
         self._load_state()

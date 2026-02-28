@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     # Konfigurasi SSO
     SSO_FILE: Path = ROOT_DIR / "key.txt"
+    SSO_TOKENS: Optional[str] = None  # Isi token SSO langsung via env (satu per baris, pisahkan dengan \n)
 
     # Penyimpanan gambar (opsional, untuk caching)
     IMAGES_DIR: Path = ROOT_DIR / "data" / "images"

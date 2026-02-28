@@ -12,7 +12,7 @@ services:
     volumes:
       - grokpi-data:/app/data
       - grokpi-db:/app/db
-      - ./key.txt:/app/key.txt:ro
+      # - ./key.txt:/app/key.txt:ro  # Uncomment jika pakai file lokal
     depends_on:
       flaresolverr:
         condition: service_started
