@@ -76,26 +76,26 @@ class SSOManager:
                     self._usage[sso] = KeyUsage(first_used=time.time())
 
     def load_sso_list(self) -> int:
-        """Memuat daftar SSO dari env SSO_TOKENS atau file"""
+        """Memuat daftar SSO dari file (atau env SSO_TOKENS sebagai fallback)"""
         self._sso_list = []
 
-        # Prioritas 1: Environment variable SSO_TOKENS
-        if settings.SSO_TOKENS:
-            logger.info("[SSO] Memuat dari environment variable SSO_TOKENS")
-            self._parse_tokens(settings.SSO_TOKENS)
-        else:
-            # Prioritas 2: File SSO
-            sso_file = settings.SSO_FILE
-            if not sso_file.exists() or sso_file.is_dir():
-                if sso_file.is_dir():
-                    logger.warning(f"[SSO] '{sso_file}' adalah direktori, bukan file. Set SSO_TOKENS env atau perbaiki volume mount.")
-                else:
-                    logger.warning(f"[SSO] File tidak ada: {sso_file}")
-                return 0
+        sso_file = settings.SSO_FILE
 
+        # Prioritas 1: Baca dari file SSO
+        if sso_file.exists() and not sso_file.is_dir():
             logger.info(f"[SSO] Memuat dari file: {sso_file}")
             with open(sso_file, 'r', encoding='utf-8') as f:
                 self._parse_tokens(f.read())
+        elif settings.SSO_TOKENS:
+            # Fallback: Environment variable SSO_TOKENS
+            logger.info("[SSO] Memuat dari environment variable SSO_TOKENS")
+            self._parse_tokens(settings.SSO_TOKENS)
+        else:
+            if sso_file.is_dir():
+                logger.warning(f"[SSO] '{sso_file}' adalah direktori, bukan file. Set SSO_TOKENS env atau perbaiki volume mount.")
+            else:
+                logger.warning(f"[SSO] File tidak ada: {sso_file}. Tambahkan key via bot atau set SSO_TOKENS/SSO_COOKIE env.")
+            return 0
 
         # Muat status persisten
         self._load_state()
