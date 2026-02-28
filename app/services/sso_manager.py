@@ -80,21 +80,27 @@ class SSOManager:
         self._sso_list = []
 
         sso_file = settings.SSO_FILE
+        file_has_content = False
 
-        # Prioritas 1: Baca dari file SSO
+        # Prioritas 1: Baca dari file SSO (jika ada dan bukan direktori)
         if sso_file.exists() and not sso_file.is_dir():
-            logger.info(f"[SSO] Memuat dari file: {sso_file}")
-            with open(sso_file, 'r', encoding='utf-8') as f:
-                self._parse_tokens(f.read())
-        elif settings.SSO_TOKENS:
-            # Fallback: Environment variable SSO_TOKENS
+            content = sso_file.read_text(encoding='utf-8').strip()
+            if content:
+                logger.info(f"[SSO] Memuat dari file: {sso_file}")
+                self._parse_tokens(content)
+                file_has_content = True
+            else:
+                logger.info(f"[SSO] File kosong: {sso_file}")
+
+        # Fallback: Environment variable SSO_TOKENS (jika file kosong/tidak ada)
+        if not file_has_content and settings.SSO_TOKENS:
             logger.info("[SSO] Memuat dari environment variable SSO_TOKENS")
             self._parse_tokens(settings.SSO_TOKENS)
-        else:
+
+        if not self._sso_list:
             if sso_file.is_dir():
-                logger.warning(f"[SSO] '{sso_file}' adalah direktori, bukan file. Set SSO_TOKENS env atau perbaiki volume mount.")
-            else:
-                logger.warning(f"[SSO] File tidak ada: {sso_file}. Tambahkan key via bot atau set SSO_TOKENS/SSO_COOKIE env.")
+                logger.warning(f"[SSO] '{sso_file}' adalah direktori, bukan file.")
+            logger.warning("[SSO] Tidak ada SSO ditemukan. Tambahkan key via bot, SSO_COOKIE, atau SSO_TOKENS env.")
             return 0
 
         # Muat status persisten

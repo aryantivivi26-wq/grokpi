@@ -8,20 +8,21 @@ mkdir -p /app/db /app/data/images /app/data/videos
 SSO_FILE="${SSO_FILE:-/app/db/key.txt}"
 export SSO_FILE
 
-# Write SSO key from env if provided and file doesn't exist yet
-if [ -n "$SSO_COOKIE" ] && [ ! -f "$SSO_FILE" ]; then
+# If SSO_COOKIE or SSO_TOKENS env is set, always write to file (sync env → file)
+if [ -n "$SSO_COOKIE" ]; then
     echo "$SSO_COOKIE" > "$SSO_FILE"
-    echo "[entrypoint] SSO key written to $SSO_FILE"
-fi
-
-# Write SSO_TOKENS (multi-line) to file if provided and file doesn't exist
-if [ -n "$SSO_TOKENS" ] && [ ! -f "$SSO_FILE" ]; then
+    echo "[entrypoint] SSO key written to $SSO_FILE from SSO_COOKIE"
+elif [ -n "$SSO_TOKENS" ]; then
     echo -e "$SSO_TOKENS" > "$SSO_FILE"
-    echo "[entrypoint] SSO tokens written to $SSO_FILE"
+    echo "[entrypoint] SSO tokens written to $SSO_FILE from SSO_TOKENS"
 fi
 
 # Ensure SSO file exists (empty is OK, bot can add keys later)
 touch "$SSO_FILE"
+
+# Show SSO file status
+SSO_COUNT=$(grep -c . "$SSO_FILE" 2>/dev/null || echo 0)
+echo "[entrypoint] SSO file: $SSO_FILE ($SSO_COUNT keys)"
 
 echo "[entrypoint] Starting GrokPi Gateway + Bot..."
 
