@@ -94,7 +94,7 @@ async def open_image_menu(callback: CallbackQuery, state: FSMContext) -> None:
         await safe_edit_text(
             callback.message,
             "🖼 <b>Gemini Image Generator</b>\n"
-            "• Format: <b>Landscape (3:2)</b>\n"
+            "• Format: <b>Sesuai prompt</b>\n"
             "• Jumlah: <b>1 gambar</b>\n\n"
             "✍️ Kirim prompt gambar sekarang.",
         )
@@ -308,10 +308,10 @@ async def handle_image_prompt(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     backend = data.get("backend", "grok")
 
-    # Gemini: fixed 1 image, 3:2 landscape
+    # Gemini: fixed 1 image, no forced aspect (user decides via prompt)
     if backend == "gemini":
         n = 1
-        aspect = "3:2"
+        aspect = ""
     else:
         aspect, n = await _ensure_image_defaults(state)
 
