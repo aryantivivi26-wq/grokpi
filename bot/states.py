@@ -31,6 +31,7 @@ class GeminiFlow(StatesGroup):
     waiting_host_c_oses = State()
     waiting_csesidx = State()
     waiting_config_id = State()
+    waiting_email = State()        # email for auto-login
 
 
 class AdminUserFlow(StatesGroup):

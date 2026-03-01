@@ -1,9 +1,10 @@
 """
-Background Gemini server health check scheduler.
+Background Gemini server health check + auto-login scheduler.
 
-Runs every GEMINI_HEALTH_INTERVAL_MINUTES (default: 15) and updates
-the in-memory status cache in gemini_manager. Notifies admins when
-a server transitions from active → dead.
+Every GEMINI_HEALTH_INTERVAL_MINUTES (default: 15):
+  1. Health check all servers — update status cache
+  2. Notify admins on status transitions (active → dead, dead → active)
+  3. If a server is dead AND has email configured → trigger auto-login
 """
 
 import asyncio
@@ -19,6 +20,7 @@ from .gemini_manager import STATUS_ACTIVE, STATUS_DEAD, STATUS_ICONS
 logger = logging.getLogger(__name__)
 
 HEALTH_INTERVAL_MINUTES = int(os.environ.get("GEMINI_HEALTH_INTERVAL_MINUTES", "15"))
+AUTO_LOGIN_ENABLED = os.environ.get("GEMINI_AUTO_LOGIN_ENABLED", "true").lower() in ("1", "true", "yes")
 
 
 class GeminiHealthScheduler:
@@ -28,6 +30,7 @@ class GeminiHealthScheduler:
         self._admin_ids: list[int] = []
         self._gemini_mgr = None  # set on start
         self._prev_statuses: dict[int, str] = {}
+        self._login_in_progress: set[int] = set()  # indices currently being refreshed
 
     def start(self, bot: Bot, admin_ids: list[int], gemini_mgr) -> None:
         self._bot = bot
@@ -35,8 +38,9 @@ class GeminiHealthScheduler:
         self._gemini_mgr = gemini_mgr
         self._task = asyncio.create_task(self._loop())
         logger.info(
-            "[GeminiHealth] Scheduler started (interval: %d min)",
+            "[GeminiHealth] Scheduler started (interval: %d min, auto-login: %s)",
             HEALTH_INTERVAL_MINUTES,
+            AUTO_LOGIN_ENABLED,
         )
 
     def stop(self) -> None:
@@ -65,8 +69,10 @@ class GeminiHealthScheduler:
             accounts = health.get("accounts", [])
             self._gemini_mgr.update_status(accounts)
 
-            # Detect transitions
+            # Detect transitions + collect dead servers for auto-login
             alerts = []
+            dead_with_email = []
+
             for i, acc in enumerate(accounts):
                 new_status = acc.get("status", "unknown")
                 old_status = self._prev_statuses.get(i)
@@ -84,8 +90,15 @@ class GeminiHealthScheduler:
                         f"Status: {old_status} → {new_status}"
                     )
 
+                # Track dead servers with email for auto-login
+                if new_status == STATUS_DEAD:
+                    local_acc = self._gemini_mgr.get_account(i)
+                    if local_acc and local_acc.get("email"):
+                        dead_with_email.append((i, local_acc))
+
                 self._prev_statuses[i] = new_status
 
+            # Notify admins
             if alerts and self._bot:
                 text = "🩺 <b>Gemini Health Alert</b>\n\n" + "\n\n".join(alerts)
                 for admin_id in self._admin_ids:
@@ -98,8 +111,86 @@ class GeminiHealthScheduler:
             total = len(accounts)
             logger.info("[GeminiHealth] Check complete: %d/%d active", active, total)
 
+            # Auto-login dead servers that have email configured
+            if AUTO_LOGIN_ENABLED and dead_with_email:
+                for idx, acc_data in dead_with_email:
+                    if idx in self._login_in_progress:
+                        logger.info("[GeminiHealth] Server %d already being refreshed, skip", idx + 1)
+                        continue
+                    asyncio.create_task(self._auto_login(idx, acc_data))
+
         except Exception as exc:
             logger.warning("[GeminiHealth] Health check failed: %s", exc)
+
+    async def _auto_login(self, idx: int, acc_data: dict) -> None:
+        """Trigger auto-login for a dead server."""
+        email = acc_data.get("email", "")
+        self._login_in_progress.add(idx)
+        logger.info("[GeminiHealth] Auto-login starting for Server %d (%s)", idx + 1, email)
+
+        # Notify admins
+        if self._bot:
+            text = (
+                f"🔄 <b>Auto-Login Server {idx + 1}</b>\n\n"
+                f"📧 Email: {email}\n"
+                f"⏳ Headless Chrome login dimulai..."
+            )
+            for admin_id in self._admin_ids:
+                try:
+                    await self._bot.send_message(admin_id, text)
+                except Exception:
+                    pass
+
+        try:
+            result = await gateway_client.gemini_autologin(
+                account_index=idx,
+                email=email,
+                mail_provider=acc_data.get("mail_provider", "generatoremail"),
+            )
+
+            if result.get("success"):
+                config = result.get("config", {})
+                self._gemini_mgr.update_account_cookies(idx, config)
+
+                # Reload gateway
+                accounts_json = self._gemini_mgr.get_config_json()
+                await gateway_client.reload_gemini(accounts_json)
+
+                logger.info("[GeminiHealth] Auto-login SUCCESS for Server %d", idx + 1)
+
+                if self._bot:
+                    text = (
+                        f"✅ <b>Auto-Login Server {idx + 1} Berhasil!</b>\n\n"
+                        f"📧 Email: {email}\n"
+                        f"🔑 Cookies baru di-update.\n"
+                        f"⏰ Expires: {config.get('expires_at', '?')}\n"
+                        f"🔄 Gateway reloaded."
+                    )
+                    for admin_id in self._admin_ids:
+                        try:
+                            await self._bot.send_message(admin_id, text)
+                        except Exception:
+                            pass
+            else:
+                error = result.get("error", "Unknown error")
+                logger.warning("[GeminiHealth] Auto-login FAILED for Server %d: %s", idx + 1, error)
+
+                if self._bot:
+                    text = (
+                        f"❌ <b>Auto-Login Server {idx + 1} Gagal</b>\n\n"
+                        f"📧 Email: {email}\n"
+                        f"Error: {error[:200]}"
+                    )
+                    for admin_id in self._admin_ids:
+                        try:
+                            await self._bot.send_message(admin_id, text)
+                        except Exception:
+                            pass
+
+        except Exception as exc:
+            logger.error("[GeminiHealth] Auto-login error for Server %d: %s", idx + 1, exc)
+        finally:
+            self._login_in_progress.discard(idx)
 
 
 gemini_health_scheduler = GeminiHealthScheduler()

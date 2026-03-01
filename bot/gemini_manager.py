@@ -54,6 +54,8 @@ class LocalGeminiManager:
         host_c_oses: str = "",
         csesidx: str = "",
         config_id: str = "",
+        email: str = "",
+        mail_provider: str = "generatoremail",
     ) -> Dict[str, Any]:
         """Add a new Gemini account. Returns status dict."""
         if not secure_c_ses:
@@ -77,6 +79,8 @@ class LocalGeminiManager:
             "host_c_oses": host_c_oses,
             "csesidx": csesidx,
             "config_id": config_id or str(uuid.uuid4()),
+            "email": email,
+            "mail_provider": mail_provider,
         }
         accounts.append(new_account)
         self.file_path.write_text(json.dumps(accounts), encoding="utf-8")
@@ -132,6 +136,34 @@ class LocalGeminiManager:
     def get_status(self, index: int) -> str:
         return self._status.get(index, STATUS_UNKNOWN)
 
+    def update_account_email(self, index: int, email: str, mail_provider: str = "generatoremail") -> Dict[str, str]:
+        """Set email + mail provider for auto-login on an existing account."""
+        accounts = self.list_accounts()
+        if index < 0 or index >= len(accounts):
+            return {"status": "error", "message": f"Index {index + 1} tidak valid"}
+        accounts[index]["email"] = email
+        accounts[index]["mail_provider"] = mail_provider
+        self.file_path.write_text(json.dumps(accounts), encoding="utf-8")
+        return {"status": "ok", "message": f"Server {index + 1} email set: {email}"}
+
+    def update_account_cookies(self, index: int, new_config: dict) -> Dict[str, str]:
+        """Update cookies for an account after auto-login refresh."""
+        accounts = self.list_accounts()
+        if index < 0 or index >= len(accounts):
+            return {"status": "error", "message": f"Index {index + 1} tidak valid"}
+        for key in ("secure_c_ses", "host_c_oses", "csesidx", "config_id", "expires_at"):
+            if key in new_config and new_config[key]:
+                accounts[index][key] = new_config[key]
+        self.file_path.write_text(json.dumps(accounts), encoding="utf-8")
+        return {"status": "ok", "message": f"Server {index + 1} cookies updated"}
+
+    def get_account(self, index: int) -> Optional[dict]:
+        """Get a single account by index."""
+        accounts = self.list_accounts()
+        if 0 <= index < len(accounts):
+            return accounts[index]
+        return None
+
     def get_masked_summary(self) -> List[str]:
         accounts = self.list_accounts()
         result = []
@@ -146,7 +178,9 @@ class LocalGeminiManager:
             cfg_short = cfg[:8] + "…" if len(cfg) > 8 else cfg
             status = self._status.get(idx, STATUS_UNKNOWN)
             icon = STATUS_ICONS.get(status, "❓")
-            result.append(f"{icon} Server {idx + 1}: {masked} (idx: {csesidx}, cfg: {cfg_short})")
+            email = acc.get("email", "")
+            email_tag = f" 📧{email}" if email else " ⚠️no-email"
+            result.append(f"{icon} Server {idx + 1}: {masked} (idx: {csesidx}, cfg: {cfg_short}){email_tag}")
         return result
 
     def get_server_keyboard_data(self) -> List[Dict[str, Any]]:

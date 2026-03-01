@@ -90,6 +90,21 @@ class GatewayClient:
     async def gemini_health(self) -> Dict[str, Any]:
         return await self._get("/admin/gemini/health")
 
+    async def gemini_autologin(self, account_index: int, email: str,
+                                mail_provider: str = "generatoremail",
+                                mail_domains: list = None) -> Dict[str, Any]:
+        payload = {
+            "account_index": account_index,
+            "email": email,
+            "mail_provider": mail_provider,
+        }
+        if mail_domains:
+            payload["mail_domains"] = mail_domains
+        return await self._post("/admin/gemini/autologin", payload)
+
+    async def gemini_autologin_status(self) -> Dict[str, Any]:
+        return await self._get("/admin/gemini/autologin/status")
+
     async def list_images(self, limit: int = 12) -> Dict[str, Any]:
         return await self._get(f"/admin/images/list?limit={limit}")
 

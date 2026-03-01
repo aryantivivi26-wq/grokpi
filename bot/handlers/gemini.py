@@ -155,16 +155,34 @@ async def gemini_server_info(callback: CallbackQuery) -> None:
     else:
         masked_oses = oses[:3] + "***" if oses else "(kosong)"
 
+    email = acc.get("email", "")
+    email_line = f"📧 email: <code>{email}</code>" if email else "📧 email: <i>belum diset (auto-login disabled)</i>"
+    expires = acc.get("expires_at", "")
+    expires_line = f"⏰ expires: <code>{expires}</code>" if expires else ""
+
     text = (
         f"{icon} <b>Server {idx + 1}</b> — {status}\n\n"
         f"🔑 secure_c_ses: <code>{masked_ses}</code>\n"
         f"🔑 host_c_oses: <code>{masked_oses}</code>\n"
         f"📝 csesidx: <code>{acc.get('csesidx', '?')}</code>\n"
-        f"⚙️ config_id: <code>{acc.get('config_id', '?')}</code>"
+        f"⚙️ config_id: <code>{acc.get('config_id', '?')}</code>\n"
+        f"{email_line}"
     )
+    if expires_line:
+        text += f"\n{expires_line}"
 
-    kb = await _build_menu_keyboard()
-    await safe_edit_text(callback.message, text, reply_markup=kb)
+    # Build per-server action keyboard
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    rows = []
+    if email:
+        rows.append([InlineKeyboardButton(text="🔄 Auto-Login Refresh", callback_data=f"gem:autologin:{idx}")])
+    else:
+        rows.append([InlineKeyboardButton(text="📧 Set Email (enable auto-login)", callback_data=f"gem:setemail:{idx}")])
+    rows.append([InlineKeyboardButton(text="🗑 Remove", callback_data=f"gem:rm:{idx}")])
+    rows.append([InlineKeyboardButton(text="⬅️ Back", callback_data="gem:list")])
+    info_kb = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    await safe_edit_text(callback.message, text, reply_markup=info_kb)
     await callback.answer()
 
 
@@ -318,15 +336,18 @@ async def add_gemini_step3(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "gem:skip", GeminiFlow.waiting_config_id)
 async def skip_config_id(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
-    await clear_state(state)
 
-    result = gemini_mgr.add_account(
-        secure_c_ses=data.get("secure_c_ses", ""),
-        host_c_oses=data.get("host_c_oses", ""),
-        csesidx=data.get("csesidx", ""),
-        config_id="",
+    # Move to email step
+    await state.update_data(config_id="")
+    await state.set_state(GeminiFlow.waiting_email)
+    await safe_edit_text(
+        callback.message,
+        "📧 <b>Step 5/5 — Auto-Login Email</b>\n"
+        "Kirim <b>email</b> Google account ini untuk auto-refresh cookies.\n\n"
+        "⚠️ Email harus terdaftar di generator.email domain.\n"
+        "Tekan Skip jika tidak mau auto-refresh.",
+        reply_markup=gemini_skip_keyboard(),
     )
-    await _finish_add(callback.message, result)
     await callback.answer()
 
 
@@ -338,16 +359,82 @@ async def add_gemini_step4(message: Message, state: FSMContext) -> None:
         return
 
     config_id = (message.text or "").strip()
-    data = await state.get_data()
-    await clear_state(state)
+    await state.update_data(config_id=config_id)
+    await state.set_state(GeminiFlow.waiting_email)
+    await message.answer(
+        "📧 <b>Step 5/5 — Auto-Login Email</b>\n"
+        "Kirim <b>email</b> Google account ini untuk auto-refresh cookies.\n\n"
+        "⚠️ Email harus terdaftar di generator.email domain.\n"
+        "Tekan Skip jika tidak mau auto-refresh.",
+        reply_markup=gemini_skip_keyboard(),
+    )
 
+
+@router.callback_query(F.data == "gem:skip", GeminiFlow.waiting_email)
+async def skip_email(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+
+    # If this is from set-email flow, just cancel back
+    if data.get("set_email_index") is not None:
+        await clear_state(state)
+        kb = await _build_menu_keyboard()
+        await safe_edit_text(
+            callback.message,
+            "💎 <b>Gemini Server Manager</b>",
+            reply_markup=kb,
+        )
+        await callback.answer("Dibatalkan")
+        return
+
+    # From add-account flow — save without email
+    await clear_state(state)
     result = gemini_mgr.add_account(
         secure_c_ses=data.get("secure_c_ses", ""),
         host_c_oses=data.get("host_c_oses", ""),
         csesidx=data.get("csesidx", ""),
-        config_id=config_id,
+        config_id=data.get("config_id", ""),
+        email="",
     )
+    await _finish_add(callback.message, result)
+    await callback.answer()
 
+
+@router.message(GeminiFlow.waiting_email)
+async def handle_email_input(message: Message, state: FSMContext) -> None:
+    """Unified email input handler — works for both add-flow and set-email flow."""
+    user_id = message.from_user.id if message.from_user else 0
+    if not is_admin(user_id):
+        await clear_state(state)
+        return
+
+    email = (message.text or "").strip()
+    data = await state.get_data()
+
+    # Check if this is a "set email on existing server" flow
+    set_email_index = data.get("set_email_index")
+    if set_email_index is not None:
+        await clear_state(state)
+        result = gemini_mgr.update_account_email(set_email_index, email)
+        kb = await _build_menu_keyboard()
+        if result["status"] == "ok":
+            await message.answer(f"✅ {result['message']}")
+        else:
+            await message.answer(f"❌ {result['message']}")
+        await message.answer(
+            "💎 <b>Gemini Server Manager</b>",
+            reply_markup=kb,
+        )
+        return
+
+    # Otherwise from add-account flow (step 5)
+    await clear_state(state)
+    result = gemini_mgr.add_account(
+        secure_c_ses=data.get("secure_c_ses", ""),
+        host_c_oses=data.get("host_c_oses", ""),
+        csesidx=data.get("csesidx", ""),
+        config_id=data.get("config_id", ""),
+        email=email,
+    )
     await _finish_add(message, result)
 
 
@@ -460,4 +547,113 @@ async def gemini_remove_last(callback: CallbackQuery) -> None:
             f"✅ {result['message']}\n⚠️ Reload gagal: {exc}",
             reply_markup=kb,
         )
+    await callback.answer()
+
+
+# ---- Auto-Login & Email Config ----
+
+@router.callback_query(F.data.startswith("gem:autologin:"))
+async def gemini_autologin_trigger(callback: CallbackQuery) -> None:
+    """Trigger auto-login for a specific server."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    if not is_admin(user_id):
+        await callback.answer("Akses ditolak", show_alert=True)
+        return
+
+    try:
+        idx = int(callback.data.split(":")[-1])
+    except (ValueError, IndexError):
+        await callback.answer("Invalid index", show_alert=True)
+        return
+
+    acc = gemini_mgr.get_account(idx)
+    if not acc:
+        await callback.answer("Server tidak ditemukan", show_alert=True)
+        return
+
+    email = acc.get("email", "")
+    if not email:
+        await callback.answer("Email belum diset! Set email dulu.", show_alert=True)
+        return
+
+    await callback.answer("🔄 Starting auto-login... (bisa 1-3 menit)", show_alert=True)
+
+    kb = await _build_menu_keyboard()
+    await safe_edit_text(
+        callback.message,
+        f"🔄 <b>Auto-Login Server {idx + 1}</b>\n\n"
+        f"📧 Email: {email}\n"
+        f"⏳ Sedang login via headless Chrome...\n"
+        f"Proses ini bisa memakan waktu 1-3 menit.",
+        reply_markup=kb,
+    )
+
+    try:
+        result = await gateway_client.gemini_autologin(
+            account_index=idx,
+            email=email,
+            mail_provider=acc.get("mail_provider", "generatoremail"),
+        )
+
+        if result.get("success"):
+            # Update local cookies file too
+            config = result.get("config", {})
+            gemini_mgr.update_account_cookies(idx, config)
+
+            # Reload gateway with updated config
+            accounts_json = gemini_mgr.get_config_json()
+            await gateway_client.reload_gemini(accounts_json)
+
+            kb = await _refresh_health_and_build_menu()
+            await safe_edit_text(
+                callback.message,
+                f"✅ <b>Auto-Login Server {idx + 1} Berhasil!</b>\n\n"
+                f"📧 Email: {email}\n"
+                f"🔑 Cookies baru sudah di-update.\n"
+                f"⏰ Expires: {config.get('expires_at', '?')}\n"
+                f"🔄 Gateway reloaded.",
+                reply_markup=kb,
+            )
+        else:
+            error = result.get("error", "Unknown error")
+            kb = await _build_menu_keyboard()
+            await safe_edit_text(
+                callback.message,
+                f"❌ <b>Auto-Login Server {idx + 1} Gagal</b>\n\n"
+                f"📧 Email: {email}\n"
+                f"Error: {error[:200]}",
+                reply_markup=kb,
+            )
+    except Exception as exc:
+        kb = await _build_menu_keyboard()
+        await safe_edit_text(
+            callback.message,
+            f"❌ Auto-Login error: {exc}",
+            reply_markup=kb,
+        )
+
+
+@router.callback_query(F.data.startswith("gem:setemail:"))
+async def gemini_set_email_start(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start email config for a specific server."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    if not is_admin(user_id):
+        await callback.answer("Akses ditolak", show_alert=True)
+        return
+
+    try:
+        idx = int(callback.data.split(":")[-1])
+    except (ValueError, IndexError):
+        await callback.answer("Invalid index", show_alert=True)
+        return
+
+    await state.set_state(GeminiFlow.waiting_email)
+    await state.update_data(set_email_index=idx)
+    await safe_edit_text(
+        callback.message,
+        f"📧 <b>Set Email untuk Server {idx + 1}</b>\n\n"
+        f"Kirim email Google account untuk auto-login.\n"
+        f"Email harus bisa menerima verification code di generator.email.",
+        reply_markup=gemini_input_keyboard(),
+    )
     await callback.answer()

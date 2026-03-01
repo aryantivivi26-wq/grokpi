@@ -271,3 +271,68 @@ async def gemini_health():
         results.append(entry)
 
     return {"accounts": results}
+
+
+# ---------- Gemini Auto-Login ----------
+
+class GeminiAutoLoginRequest(BaseModel):
+    account_index: int
+    email: str
+    mail_provider: str = "generatoremail"
+    mail_domains: Optional[list] = None
+
+
+@router.post("/gemini/autologin")
+async def gemini_autologin(body: GeminiAutoLoginRequest):
+    """Trigger browser-based auto-login for a specific Gemini account."""
+    from app.services.gemini_login_service import gemini_auto_login
+    from app.backends.router import backend_router
+
+    gemini = backend_router.get_backend_by_name("gemini")
+    if gemini is None:
+        raise HTTPException(status_code=404, detail="Gemini backend not registered")
+
+    mgr = gemini._multi_account_mgr
+    if not mgr:
+        raise HTTPException(status_code=404, detail="No Gemini accounts configured")
+
+    accounts_list = list(mgr.accounts.values())
+    if body.account_index < 0 or body.account_index >= len(accounts_list):
+        raise HTTPException(status_code=400, detail=f"Invalid account index: {body.account_index}")
+
+    account_data = {
+        "email": body.email,
+        "mail_provider": body.mail_provider,
+        "mail_domains": body.mail_domains,
+        "secure_c_ses": accounts_list[body.account_index].config.secure_c_ses,
+        "config_id": accounts_list[body.account_index].config.config_id,
+    }
+
+    async def on_refresh(index: int, new_config: dict):
+        """Callback: update account in MultiAccountManager after successful login."""
+        acc_id = list(mgr.accounts.keys())[index]
+        account = mgr.accounts[acc_id]
+        account.config.secure_c_ses = new_config.get("secure_c_ses", account.config.secure_c_ses)
+        account.config.host_c_oses = new_config.get("host_c_oses", account.config.host_c_oses)
+        if new_config.get("csesidx"):
+            account.config.csesidx = new_config["csesidx"]
+        if new_config.get("config_id"):
+            account.config.config_id = new_config["config_id"]
+        expires_at = new_config.get("expires_at", "")
+        if expires_at:
+            account.config.expires_at = expires_at
+        account.config.disabled = False
+        account.jwt_manager._token = None  # Force JWT refresh
+        logger.info("[AutoLogin] Account %s updated with new cookies", acc_id)
+
+    gemini_auto_login.set_refresh_callback(on_refresh)
+
+    result = await gemini_auto_login.refresh_account(account_data, body.account_index)
+    return result
+
+
+@router.get("/gemini/autologin/status")
+async def gemini_autologin_status():
+    """Get current auto-login service status."""
+    from app.services.gemini_login_service import gemini_auto_login
+    return gemini_auto_login.get_status()
