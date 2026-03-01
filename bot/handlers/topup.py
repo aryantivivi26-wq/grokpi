@@ -9,7 +9,6 @@ Packs:
 """
 
 import asyncio
-import base64
 import html
 import logging
 import time
@@ -23,6 +22,7 @@ from .. import database as db
 from ..config import settings
 from ..keyboards import pay_back_keyboard
 from ..payment_client import qris_client
+from ..qr_utils import generate_qr_png
 from ..ui import safe_edit_text
 
 logger = logging.getLogger(__name__)
@@ -178,7 +178,7 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
 
     txn_id = result["transaction_id"]
     amount_total = result.get("amount_total", amount)
-    qris_image_b64 = result.get("qris_image_url", "")
+    qris_content = result.get("qris_content", "")
 
     # Save as payment record (tier=topup_PACKID, duration=topup)
     await db.create_payment(
@@ -199,11 +199,9 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
 
     chat_id = callback.message.chat.id
     try:
-        if qris_image_b64.startswith("data:"):
-            b64_data = qris_image_b64.split(",", 1)[1]
-        else:
-            b64_data = qris_image_b64
-        image_bytes = base64.b64decode(b64_data)
+        if not qris_content:
+            raise ValueError("qris_content kosong dari API")
+        image_bytes = generate_qr_png(qris_content)
         photo = BufferedInputFile(image_bytes, filename="qris_topup.png")
         await bot.send_photo(
             chat_id=chat_id,

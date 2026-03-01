@@ -7,7 +7,6 @@ Flow:
 """
 
 import asyncio
-import base64
 import html
 import logging
 import time
@@ -30,6 +29,7 @@ from ..keyboards import (
     subscription_menu_keyboard,
 )
 from ..payment_client import qris_client
+from ..qr_utils import generate_qr_png
 from ..security import is_admin
 from ..states import PaymentFlow
 from ..subscription_manager import (
@@ -181,7 +181,7 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
     txn_id = result["transaction_id"]
     amount_total = result.get("amount_total", amount)
     expires_at = result.get("expires_at", "")
-    qris_image_b64 = result.get("qris_image_url", "")
+    qris_content = result.get("qris_content", "")
 
     # Save payment record
     await db.create_payment(
@@ -211,14 +211,9 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
     # Send QR image
     chat_id = callback.message.chat.id if callback.message else user_id
     try:
-        # qris_image_url is "data:image/png;base64,<data>"
-        if qris_image_b64.startswith("data:"):
-            b64_data = qris_image_b64.split(",", 1)[1]
-        else:
-            b64_data = qris_image_b64
-        image_bytes = base64.b64decode(b64_data)
-        if len(image_bytes) < 100:
-            raise ValueError(f"QR image too small ({len(image_bytes)} bytes), API mungkin bermasalah")
+        if not qris_content:
+            raise ValueError("qris_content kosong dari API")
+        image_bytes = generate_qr_png(qris_content)
         photo = BufferedInputFile(image_bytes, filename="qris.png")
         await bot.send_photo(
             chat_id=chat_id,

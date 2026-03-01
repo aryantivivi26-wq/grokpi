@@ -1,0 +1,381 @@
+# QRIS Payment Gateway API Documentation
+
+## Base URL
+
+```
+https://qris.hubify.store/api
+```
+
+## Authentication
+
+Semua request API memerlukan API Key yang dikirim melalui header `Authorization`:
+
+```
+Authorization: Bearer sk_xxxxxxxxxx
+```
+
+---
+
+## Endpoints
+
+### 1. Create Transaction
+
+Generate new QRIS with unique amount.
+
+**Request**
+
+```
+POST /create-transaction
+```
+
+**Headers**
+
+| Header | Value |
+|--------|-------|
+| Content-Type | application/json |
+| Authorization | Bearer sk_xxxxxxxxxx |
+
+**Body Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| amount | number | Yes | Nominal pembayaran (min: 1000, max: 100.000.000) |
+| order_id | string | No | ID order dari sistem Anda (alphanumeric, `_`, `-`) |
+| customer_id | string | No | ID customer (alphanumeric, `_`, `-`) |
+
+**Request Example**
+
+```json
+{
+  "amount": 50000,
+  "order_id": "ORDER-001",
+  "customer_id": "telegram_123"
+}
+```
+
+**Response Example**
+
+```json
+{
+  "success": true,
+  "transaction_id": "TXN-ABC123",
+  "amount_original": 50000,
+  "amount_unique": 127,
+  "amount_total": 50127,
+  "qris_content": "00020101...",
+  "expires_at": "2024-01-01T12:15:00Z"
+}
+```
+
+---
+
+### 2. Check Transaction Status
+
+Check transaction status by transaction_id.
+
+**Request**
+
+```
+GET /check-status/:transaction_id
+```
+
+**Headers**
+
+| Header | Value |
+|--------|-------|
+| Authorization | Bearer sk_xxxxxxxxxx |
+
+**Path Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| transaction_id | string | Yes | ID transaksi yang ingin dicek |
+
+**Response Example**
+
+```json
+{
+  "success": true,
+  "transaction": {
+    "transaction_id": "TXN-ABC123",
+    "status": "paid",
+    "amount_original": 50000,
+    "amount_unique": 127,
+    "amount_total": 50127,
+    "paid_at": "2024-01-01T12:05:00Z"
+  }
+}
+```
+
+**Status Values**
+
+| Status | Description |
+|--------|-------------|
+| pending | Menunggu pembayaran |
+| paid | Pembayaran berhasil |
+| expired | Transaksi kadaluarsa |
+
+---
+
+### 3. Webhook Notification (Inbound)
+
+Receive payment notification from Android (MacroDroid).
+
+**Request**
+
+```
+POST /webhook-notification
+```
+
+**Headers**
+
+| Header | Value |
+|--------|-------|
+| Content-Type | application/json |
+
+**Body Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| message | string | Yes | Pesan notifikasi dari bank yang berisi informasi pembayaran |
+| source | string | No | Sumber notifikasi (e.g., "gopay", "bca") |
+
+**Request Example**
+
+```json
+{
+  "message": "Pembayaran Rp 50.127 dari JOHN DOE berhasil",
+  "source": "gopay"
+}
+```
+
+**Response Example**
+
+```json
+{
+  "success": true,
+  "matched": true,
+  "transaction_id": "TXN-ABC123"
+}
+```
+
+---
+
+### 4. Get Transactions
+
+List all transactions.
+
+**Request**
+
+```
+GET /transactions
+```
+
+**Headers**
+
+| Header | Value |
+|--------|-------|
+| Authorization | Bearer sk_xxxxxxxxxx |
+
+**Query Parameters**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| status | string | No | Filter berdasarkan status (pending\|paid\|expired) |
+| limit | number | No | Jumlah data per halaman (default: 10) |
+| offset | number | No | Offset untuk pagination (default: 0) |
+
+**Response Example**
+
+```json
+{
+  "success": true,
+  "transactions": [...],
+  "total": 100
+}
+```
+
+---
+
+## Webhook Callback (Outbound)
+
+Ketika pelanggan berhasil melakukan pembayaran, kami akan mengirimkan notifikasi ke webhook URL Anda.
+
+**HTTP POST ke Webhook URL Anda**
+
+**Payload**
+
+```json
+{
+  "amount": 50000,
+  "order_id": "ORDER-001",
+  "customer_id": "telegram_123",
+  "status": "completed",
+  "payment_method": "qris",
+  "completed_at": "2024-01-01T12:05:00.123+07:00"
+}
+```
+
+**Payload Fields**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| amount | number | Nominal pembayaran (amount_original) |
+| order_id | string | ID order dari request awal |
+| customer_id | string | ID customer dari request awal |
+| status | string | Selalu "completed" untuk pembayaran sukses |
+| payment_method | string | Selalu "qris" |
+| completed_at | string | Waktu pembayaran dalam format ISO 8601 |
+
+**Headers yang dikirim:**
+
+| Header | Description |
+|--------|-------------|
+| Content-Type | application/json |
+| X-Webhook-Secret | your_secret - untuk simple verification |
+| X-Webhook-Signature | HMAC-SHA256(secret, body) |
+| X-Webhook-Signature-V2 | t=timestamp,v1=signature - dengan replay protection |
+
+---
+
+## Cara Verifikasi Webhook
+
+### 1. Simple Verification (Recommended)
+
+Cek header `X-Webhook-Secret` === secret kamu:
+
+```javascript
+app.post('/webhook', (req, res) => {
+  const receivedSecret = req.headers['x-webhook-secret'];
+  
+  if (receivedSecret !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'Invalid secret' });
+  }
+
+  // Process webhook...
+  res.json({ success: true });
+});
+```
+
+### 2. HMAC Signature Verification
+
+Bandingkan `X-Webhook-Signature` dengan `HMAC-SHA256(secret, body)`:
+
+```javascript
+const crypto = require('crypto');
+
+app.post('/webhook', (req, res) => {
+  const receivedSignature = req.headers['x-webhook-signature'];
+  const secret = process.env.WEBHOOK_SECRET;
+  
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(JSON.stringify(req.body))
+    .digest('hex');
+
+  if (receivedSignature !== expectedSignature) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  // Process webhook...
+  res.json({ success: true });
+});
+```
+
+### 3. Signature dengan Timestamp (Replay Protection)
+
+Gunakan header `X-Webhook-Signature-V2`:
+
+```
+X-Webhook-Signature-V2: t=1673000000,v1=5a2d3b4c5e6f...
+```
+
+```javascript
+const crypto = require('crypto');
+
+function verifyWebhookSignature(payload, signatureHeader, secret) {
+  const parts = signatureHeader.split(',');
+  const timestamp = parts.find(p => p.startsWith('t=')).replace('t=', '');
+  const signature = parts.find(p => p.startsWith('v1=')).replace('v1=', '');
+
+  // Check timestamp (5 min tolerance)
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - parseInt(timestamp)) > 300) {
+    return false;
+  }
+
+  const signaturePayload = `${timestamp}.${JSON.stringify(payload)}`;
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(signaturePayload)
+    .digest('hex');
+
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+}
+```
+
+---
+
+## IP Whitelist
+
+Anda dapat membatasi API Key hanya bisa diakses dari IP tertentu melalui dashboard.
+
+- Kosong = Allow semua IP
+- Support CIDR notation (e.g., `192.168.1.0/24`)
+- Support IPv4 dan IPv6
+
+**Error Response jika IP tidak diizinkan:**
+```json
+{
+  "error": "Access denied from IP x.x.x.x",
+  "code": "IP_NOT_ALLOWED"
+}
+```
+
+---
+
+## Error Responses
+
+```json
+{
+  "error": "Error message description",
+  "code": "ERROR_CODE"
+}
+```
+
+**Common Error Codes**
+
+| HTTP Code | Code | Description |
+|-----------|------|-------------|
+| 400 | VALIDATION_ERROR | Parameter tidak valid |
+| 400 | NO_QRIS | QRIS belum dikonfigurasi |
+| 401 | MISSING_AUTH | Header Authorization tidak ada |
+| 401 | INVALID_KEY | API Key tidak valid |
+| 401 | KEY_DISABLED | API Key dinonaktifkan |
+| 403 | IP_NOT_ALLOWED | IP tidak diizinkan |
+| 500 | CREATE_FAILED | Gagal membuat transaksi |
+| 500 | INTERNAL_ERROR | Kesalahan server |
+
+---
+
+## Setup MacroDroid
+
+Untuk menerima notifikasi pembayaran secara otomatis, setup MacroDroid di HP Android:
+
+1. **Trigger**: Notification Received → Pilih aplikasi bank/e-wallet
+2. **Action**: HTTP Request
+   - URL: `https://qris.hubify.store/api/webhook-notification`
+   - Method: POST
+   - Content-Type: application/json
+   - Body: `{"message": "[notification_text]"}`
+
+---
+
+## Support
+
+Untuk menerima webhook, silakan konfigurasi Webhook URL di Dashboard → Webhooks.
+
+Dokumentasi lengkap: [/docs](/docs)
