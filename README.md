@@ -1,6 +1,6 @@
 # GrokPi — Multi-Backend AI Image/Video API Gateway + Telegram Bot
 
-Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **Grok (xAI)** dan **Gemini Business (Google)**, dilengkapi **Telegram Bot** dengan fitur subscription, payment QRIS, referral, leaderboard, dan lainnya.
+Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **Grok (xAI)** dan **Gemini Business (Google)**, dilengkapi **Telegram Bot** dengan fitur subscription, payment QRIS, referral, leaderboard, dan **auto-management Gemini accounts** (auto-login, auto-register, health monitoring).
 
 ---
 
@@ -22,6 +22,13 @@ Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **
 - Multi-SSO rotation + retry/fallback
 - QRIS webhook: `POST /webhook/qris`
 
+### Gemini Auto-Management
+- 🩺 **Health Check** — Monitor status semua server Gemini (setiap 15 menit)
+- 🔄 **Auto-Login** — Refresh cookies otomatis via headless Chrome + generator.email
+- 🆕 **Auto-Register** — Buat akun Gemini baru otomatis (headless Chrome + random email)
+- 📊 **Server Status** — Indikator 🟢/🔴 per server di bot
+- ⏰ **Auto-Refresh** — Cookies yang hampir expired otomatis di-refresh
+
 ### Telegram Bot
 - 🖼 Generate image via tombol (batch prompt untuk Grok)
 - 🎬 Generate video via tombol
@@ -32,6 +39,16 @@ Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **
 - 🔗 Referral program (+10 bonus image)
 - 🎁 Trial Premium 12 jam untuk user baru
 - 🏆 Leaderboard generator bulanan
+
+### Bot Commands
+| Command | Deskripsi |
+|---------|-----------|
+| `/start` | Menu utama + statistik |
+| `/help` | Bantuan |
+| `/cancel` | Batalkan proses aktif |
+| `/admin` | Panel admin (khusus admin) |
+| `/gemini` | Gemini Server Manager (khusus admin) |
+| `/sso` | SSO Key Manager (khusus admin) |
 
 ---
 
@@ -47,6 +64,10 @@ Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **
 ┌───────────────────────┐     ┌──────────────┐
 │   Bot Process         │────▶│  SQLite DB   │
 │   (python -m bot.main)│     │  (bot.db)    │
+│   ┌─────────────────┐ │     └──────────────┘
+│   │ GeminiManager   │ │     ┌──────────────┐
+│   │ HealthScheduler │─┼────▶│ gemini_      │
+│   └─────────────────┘ │     │ accounts.json│
 └──────────┬────────────┘     └──────────────┘
            │ HTTP
            ▼
@@ -54,10 +75,14 @@ Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **
 │   Gateway (FastAPI)   │────▶│ FlareSolverr │
 │   port 9563           │     │  port 8191   │
 │   ┌─────────────────┐ │     └──────────────┘
-│   │ BackendRouter   │ │
-│   │  ├─ GrokClient  │─┼──▶ grok.com (WSS/HTTPS)
-│   │  └─ GeminiClient│─┼──▶ business.gemini.google (HTTPS)
-│   └─────────────────┘ │
+│   │ BackendRouter   │ │     ┌──────────────┐
+│   │  ├─ GrokClient  │─┼──▶  grok.com (WSS)│
+│   │  └─ GeminiClient│─┼──▶  gemini (HTTPS) │
+│   ├─────────────────┤ │     └──────────────┘
+│   │ AutoLoginService│ │     ┌──────────────┐
+│   │  ├─ Chromium    │─┼──▶  generator.email│
+│   │  └─ DrissionPage│ │     │  (temp email) │
+│   └─────────────────┘ │     └──────────────┘
 └───────────────────────┘
 ```
 
@@ -82,10 +107,12 @@ Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **
 
 Cara paling cepat untuk deploy, baik di VPS maupun lokal.
 
+> **Note**: Docker image sudah include **Chromium** untuk fitur auto-login/auto-register Gemini.
+
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/aryantivivi26-wq/grokpi.git
+git clone https://github.com/imnoob59/grokpi.git
 cd grokpi
 cp .env.example .env
 nano .env   # Isi semua variabel yang diperlukan
@@ -120,7 +147,7 @@ docker compose logs -f
 ### 1. Di Coolify Dashboard
 
 1. **New Resource** → **Docker Compose** (atau **Dockerfile**)
-2. Connect **GitHub repo**: `aryantivivi26-wq/grokpi`
+2. Connect **GitHub repo**: `imnoob59/grokpi`
 3. Branch: `main`
 4. Build Pack: **Docker Compose** (pakai `docker-compose.yml`)
 
@@ -135,9 +162,15 @@ TELEGRAM_BOT_TOKEN=123456:ABC...
 BOT_ADMIN_IDS=1269254705
 SSO_COOKIE=sso_token_grok_kamu
 
-# Gemini (opsional)
+# Gemini (opsional — bisa ditambah via bot /gemini)
 GEMINI_ENABLED=true
-GEMINI_ACCOUNTS_CONFIG=[{"secure_c_ses":"...","csesidx":"...","config_id":"..."}]
+GEMINI_ACCOUNTS_CONFIG=[]
+
+# Gemini Auto-Login/Register (opsional)
+GENERATOR_EMAIL_DOMAINS=yourdomain.com
+GEMINI_BROWSER_HEADLESS=true
+GEMINI_AUTO_LOGIN_ENABLED=true
+GEMINI_HEALTH_INTERVAL_MINUTES=15
 
 # Internal (jangan diubah)
 GATEWAY_BASE_URL=http://127.0.0.1:9563
@@ -146,6 +179,8 @@ GATEWAY_API_KEY=api-key-kamu
 ```
 
 > **Catatan**: `SSO_COOKIE` otomatis ditulis ke `key.txt` saat container start. Jadi kamu tidak perlu mount file.
+>
+> **Tips Gemini**: Tidak perlu isi `GEMINI_ACCOUNTS_CONFIG` manual. Gunakan bot → `/gemini` → 🆕 Auto-Register untuk buat akun otomatis, atau ➕ Add Server untuk input manual.
 
 ### 3. Ports & Volumes
 
@@ -178,12 +213,19 @@ https://grokpi.yourdomain.com/webhook/qris
 - **OS**: Ubuntu 20.04+ / Debian 11+
 - **Python**: 3.10+
 - **Docker**: Untuk FlareSolverr (opsional, hanya untuk Grok video)
+- **Chromium**: Untuk auto-login/auto-register Gemini (opsional)
 
 ### Step 1: Install Dependencies
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3 python3-venv python3-pip git curl sqlite3
+
+# Chromium untuk Gemini auto-login/register (opsional)
+sudo apt install -y chromium-browser chromium-chromedriver \
+    fonts-liberation libatk-bridge2.0-0 libatk1.0-0 \
+    libcups2 libdrm2 libgbm1 libnss3 libxcomposite1 \
+    libxdamage1 libxrandr2 xdg-utils
 ```
 
 ### Step 2: Install Docker
@@ -198,7 +240,7 @@ sudo usermod -aG docker $USER
 
 ```bash
 cd ~
-git clone https://github.com/aryantivivi26-wq/grokpi.git
+git clone https://github.com/imnoob59/grokpi.git
 cd grokpi
 ```
 
@@ -240,6 +282,21 @@ echo "PASTE_SSO_TOKEN_DISINI" > key.txt
 
 ### Step 7: Setup Gemini Business (Opsional)
 
+Ada **3 cara** untuk menambahkan server Gemini:
+
+#### Cara 1: Auto-Register via Bot (Rekomendasi)
+Paling mudah — bot otomatis buat akun baru:
+
+1. Set env: `GENERATOR_EMAIL_DOMAINS=yourdomain.com` (domain yang MX record-nya pointing ke generator.email)
+2. Di bot, ketik `/gemini` → klik **🆕 Auto-Register**
+3. Tunggu 2-5 menit, akun baru otomatis terdaftar
+
+#### Cara 2: Add Manual via Bot
+1. Di bot, ketik `/gemini` → klik **➕ Add Server**
+2. Ikuti 5 step: `secure_c_ses` → `host_c_oses` → `csesidx` → `config_id` → `email`
+3. Cookie bisa diambil dari browser (lihat cara di bawah)
+
+#### Cara 3: JSON Config via Environment
 1. Buka [business.gemini.google](https://business.gemini.google) di browser, **login**
 2. DevTools (`F12`) → **Application** → **Cookies**
 3. Copy:
@@ -254,6 +311,15 @@ echo "PASTE_SSO_TOKEN_DISINI" > key.txt
 GEMINI_ENABLED=true
 GEMINI_ACCOUNTS_CONFIG=[{"secure_c_ses":"...","host_c_oses":"...","csesidx":"1234","config_id":"uuid-here"}]
 ```
+
+#### Setup generator.email (untuk Auto-Login & Auto-Register)
+
+generator.email adalah layanan temporary email yang digunakan untuk menerima verification code dari Google saat login/register otomatis.
+
+1. **Punya domain sendiri** (misal: `yourdomain.com`)
+2. **Set MX record** domain tersebut ke `mx.generator.email` (priority 10)
+3. **Set env**: `GENERATOR_EMAIL_DOMAINS=yourdomain.com`
+4. Bot akan generate random email seperti `abc123@yourdomain.com` dan baca OTP dari generator.email
 
 ### Step 8: Buat Telegram Bot
 
@@ -293,6 +359,18 @@ GATEWAY_API_KEY=ganti-dengan-api-key-rahasia
 # ============ Gemini Business (Opsional) ============
 GEMINI_ENABLED=false
 GEMINI_ACCOUNTS_CONFIG=
+
+# ============ Gemini Auto-Management (Opsional) ============
+# Domain untuk generator.email (pisah koma jika >1)
+GENERATOR_EMAIL_DOMAINS=
+# Headless browser (true untuk server, false untuk debug)
+GEMINI_BROWSER_HEADLESS=true
+# Proxy untuk browser automation (opsional)
+# GEMINI_AUTH_PROXY=http://proxy:port
+# Health check interval (menit)
+GEMINI_HEALTH_INTERVAL_MINUTES=15
+# Auto-login server dead saat health check
+GEMINI_AUTO_LOGIN_ENABLED=true
 
 # ============ QRIS Payment (Hubify) ============
 QRIS_API_KEY=sk_xxxxxxxx
@@ -670,6 +748,11 @@ Video generation berhasil!
 | `SSO_DAILY_LIMIT` | `10` | Limit per key per 24 jam |
 | `GEMINI_ENABLED` | `false` | Aktifkan Gemini backend |
 | `GEMINI_ACCOUNTS_CONFIG` | _(kosong)_ | JSON array config akun Gemini |
+| `GENERATOR_EMAIL_DOMAINS` | _(kosong)_ | Domain untuk generator.email (pisah koma) |
+| `GEMINI_BROWSER_HEADLESS` | `true` | Headless mode untuk Chrome automation |
+| `GEMINI_AUTH_PROXY` | _(kosong)_ | Proxy untuk browser automation |
+| `GEMINI_HEALTH_INTERVAL_MINUTES` | `15` | Interval health check Gemini (menit) |
+| `GEMINI_AUTO_LOGIN_ENABLED` | `true` | Auto-login dead servers saat health check |
 | `TELEGRAM_BOT_TOKEN` | _(kosong)_ | Token bot dari BotFather |
 | `BOT_ADMIN_IDS` | _(kosong)_ | Telegram user ID admin (pisahkan koma) |
 | `GATEWAY_BASE_URL` | `http://127.0.0.1:9563` | URL gateway untuk bot |
@@ -691,6 +774,14 @@ Bot menjalankan **midnight cleanup** setiap 00:00 WIB:
 - Hapus cache image/video di server
 - Bersihkan usage record lama
 - Broadcast notifikasi maintenance ke admin
+
+### Gemini Health Monitor
+
+Bot menjalankan **health check** setiap 15 menit (configurable via `GEMINI_HEALTH_INTERVAL_MINUTES`):
+- Cek status semua server Gemini (🟢 alive / 🔴 dead)
+- Notifikasi admin saat server berubah status (alive → dead / dead → alive)
+- **Auto-login** otomatis untuk dead servers yang punya email configured
+- Dashboard status: `/gemini` → 🩺 Health Check
 
 ### Subscription Reminder
 
@@ -726,13 +817,17 @@ sudo journalctl -u grokpi-bot --since today
 | Problem | Solusi |
 |---------|--------|
 | Video gagal 403 Cloudflare | Pastikan FlareSolverr jalan: `docker ps` & `curl localhost:8191` |
-| Gemini 401/403 | Cookie expired — ambil ulang `__Secure-C_SES` dari browser |
+| Gemini 401/403 | Cookie expired — gunakan `/gemini` → Auto-Login atau Auto-Register |
 | Gemini image lama (~2 menit) | Normal, Google image generation memang lambat |
 | Bot tidak respond | Cek token: `docker compose logs -f grokpi` |
 | Model tidak berubah di bot | Klik 🤖 Model di menu, pilih Gemini/Grok |
 | QRIS webhook tidak masuk | Pastikan port terbuka atau gunakan reverse proxy + domain |
 | Database corrupt | Backup lalu hapus: `cp bot.db bot.db.bak && rm bot.db` lalu restart |
 | cf_clearance expired | Restart FlareSolverr: `docker restart flaresolverr` |
+| Auto-login gagal | Pastikan `GENERATOR_EMAIL_DOMAINS` diset dan MX record benar |
+| Auto-register timeout | Chrome automation butuh RAM ~500MB — pastikan cukup resource |
+| Menu Gemini tidak ada | Ketik `/gemini` langsung, atau `/admin` → 💎 Gemini Accounts |
+| Health check gagal | Pastikan gateway running: `curl localhost:9563/health` |
 
 ---
 
@@ -740,7 +835,7 @@ sudo journalctl -u grokpi-bot --since today
 
 ```
 grokpi/
-├── Dockerfile               # Docker image build
+├── Dockerfile               # Docker image build (includes Chromium)
 ├── docker-compose.yml       # Docker Compose (Gateway + FlareSolverr)
 ├── entrypoint.sh            # Container entrypoint (gateway + bot)
 ├── main.py                  # FastAPI gateway entry
@@ -753,7 +848,7 @@ grokpi/
 │   ├── api/
 │   │   ├── chat.py          # Chat completion endpoint
 │   │   ├── imagine.py       # Image/video generation endpoints
-│   │   ├── admin.py         # Admin API endpoints
+│   │   ├── admin.py         # Admin API (SSO, Gemini, media, auto-login/register)
 │   │   └── webhook.py       # QRIS webhook handler
 │   ├── backends/
 │   │   ├── base.py          # BackendClient ABC
@@ -762,7 +857,7 @@ grokpi/
 │   │   │   └── client.py    # GrokBackendClient wrapper
 │   │   └── gemini/
 │   │       ├── client.py    # GeminiBackendClient
-│   │       ├── jwt_manager.py   # JWT HMAC-SHA256
+│   │       ├── jwt_manager.py   # JWT HMAC-SHA256 + cookie auto-refresh
 │   │       ├── google_api.py    # Discovery Engine API
 │   │       ├── account.py       # Multi-account manager
 │   │       ├── message.py       # Context builder
@@ -774,10 +869,16 @@ grokpi/
 │   └── services/
 │       ├── cf_solver.py     # FlareSolverr integration
 │       ├── grok_client.py   # Grok API client
-│       └── sso_manager.py   # SSO rotation manager
+│       ├── sso_manager.py   # SSO rotation manager
+│       ├── gemini_login_service.py  # Auto-login/register orchestrator
+│       └── automation/
+│           ├── browser_login.py  # DrissionPage Chromium automation
+│           ├── email_client.py   # generator.email temp email
+│           └── mail_utils.py     # Email parsing utilities
 ├── bot/
 │   ├── main.py              # Bot entry point
 │   ├── config.py            # Bot settings
+│   ├── client.py            # Gateway HTTP client
 │   ├── database.py          # SQLite layer (7 tables)
 │   ├── keyboards.py         # Inline keyboard definitions
 │   ├── ui.py                # UI helpers (clear_state, get_backend)
@@ -787,10 +888,13 @@ grokpi/
 │   ├── user_limit_manager.py    # Daily limit + extra quota
 │   ├── payment_client.py    # QRIS Hubify API client
 │   ├── cleanup_scheduler.py # Midnight cleanup + reminder
+│   ├── gemini_manager.py    # Local Gemini accounts JSON manager
+│   ├── gemini_health_scheduler.py  # Health check + auto-login scheduler
 │   └── handlers/
-│       ├── common.py        # /start, /help, /cancel, model toggle
+│       ├── common.py        # /start, /help, /cancel, /admin, /gemini, /sso
 │       ├── image.py         # Image generation
 │       ├── video.py         # Video generation
+│       ├── gemini.py        # Gemini server management (add/remove/login/register)
 │       ├── subscription.py  # Subscription management
 │       ├── payment.py       # QRIS subscription purchase
 │       ├── topup.py         # QRIS topup kuota extra

@@ -1,5 +1,51 @@
 # Release Notes
 
+## 2026-03-01 — Gemini Auto-Management (Auto-Login, Auto-Register, Health Monitor)
+
+### ✨ Highlights
+- **Auto-Register**: Buat akun Gemini baru otomatis via headless Chrome + generator.email
+- **Auto-Login**: Refresh cookies otomatis saat expired via headless Chrome
+- **Health Monitor**: Background health check setiap 15 menit, notifikasi admin saat status berubah
+- **Server Status UI**: Indikator 🟢/🔴 per server di Gemini menu
+- **Cookie Auto-Refresh**: JWT manager otomatis capture Set-Cookie dari response
+
+### 🤖 Bot — Gemini Server Manager
+- `/gemini` command — akses langsung ke Gemini Server Manager (tidak perlu lewat /admin)
+- 🆕 **Auto-Register** button — buat akun baru tanpa input manual
+- 🔄 **Auto-Login** button per server — refresh cookies via headless Chrome
+- 📧 **Set Email** per server — konfigurasi email untuk auto-login
+- 🩺 **Health Check** — cek status semua server, update indikator 🟢/🔴
+- Per-server **info panel** dengan masked cookies, config_id, email, expires
+- 5-step **Add Server** flow (secure_c_ses → host_c_oses → csesidx → config_id → email)
+
+### ⚙️ Gateway — API Endpoints
+- `GET /admin/gemini/health` — Health check semua Gemini accounts
+- `POST /admin/gemini/autologin` — Trigger auto-login untuk account tertentu
+- `GET /admin/gemini/autologin/status` — Status last auto-login attempts
+- `POST /admin/gemini/autoregister` — Auto-create new Gemini accounts (max 5 per call)
+
+### 🔧 Infrastructure
+- Docker image sekarang include **Chromium + ChromeDriver** untuk browser automation
+- **DrissionPage** >= 4.0.5 ditambahkan ke requirements
+- Background **health scheduler** di bot (configurable interval)
+- Auto-login triggered otomatis untuk dead servers
+
+### 📋 New Environment Variables
+| Variable | Default | Keterangan |
+|----------|---------|------------|
+| `GENERATOR_EMAIL_DOMAINS` | _(kosong)_ | Domain untuk temp email (MX → generator.email) |
+| `GEMINI_BROWSER_HEADLESS` | `true` | Headless mode Chrome |
+| `GEMINI_AUTH_PROXY` | _(kosong)_ | Proxy untuk browser automation |
+| `GEMINI_HEALTH_INTERVAL_MINUTES` | `15` | Interval health check (menit) |
+| `GEMINI_AUTO_LOGIN_ENABLED` | `true` | Auto-login dead servers |
+
+### 📌 Notes
+- Untuk auto-register/auto-login, butuh domain dengan MX record pointing ke `mx.generator.email`
+- Docker image ~200MB lebih besar karena Chromium
+- Auto-register membutuhkan ~500MB RAM tambahan saat proses
+
+---
+
 ## 2026-02-26 — Bot UX, Limits, and Admin Improvements
 
 ### ✨ Highlights
