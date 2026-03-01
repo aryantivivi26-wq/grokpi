@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from .. import database as db
-from ..keyboards import admin_menu_keyboard, backend_select_keyboard, main_menu_keyboard, sso_menu_keyboard
+from ..keyboards import admin_menu_keyboard, backend_select_keyboard, gemini_menu_keyboard, main_menu_keyboard, sso_menu_keyboard
 from ..security import is_admin
 from ..subscription_manager import (
     DURATION_LABELS,
@@ -175,7 +175,8 @@ async def cmd_help(message: Message) -> None:
         "├ /start — Menu utama + statistik\n"
         "├ /help — Halaman ini\n"
         "├ /cancel — Batalkan proses aktif\n"
-        "└ /admin — Panel admin (khusus admin)\n\n"
+        "├ /admin — Panel admin (khusus admin)\n"
+        "└ /gemini — Gemini server manager (admin)\n\n"
         "🖼 <b>Image</b> — Generate gambar dari teks\n"
         "🎬 <b>Video</b> — Generate video dari teks\n"
         "💎 <b>Subscription</b> — Kelola & beli langganan\n"
@@ -204,6 +205,26 @@ async def cmd_admin(message: Message) -> None:
     await message.answer(
         "🛠 <b>Admin Panel</b>\nPilih aksi admin:",
         reply_markup=admin_menu_keyboard(),
+    )
+
+
+@router.message(Command("gemini"))
+async def cmd_gemini(message: Message) -> None:
+    """Shortcut to open Gemini Server Manager directly."""
+    user_id = message.from_user.id if message.from_user else 0
+    if not is_admin(user_id):
+        await message.answer("❌ Akses ditolak. Khusus admin.")
+        return
+
+    # Import gemini_mgr to get server keyboard data
+    from .gemini import gemini_mgr
+    data = gemini_mgr.get_server_keyboard_data()
+    kb = gemini_menu_keyboard(server_data=data if data else None)
+    await message.answer(
+        "💎 <b>Gemini Server Manager</b>\n"
+        "Kelola server Gemini Business untuk image generation.\n"
+        "Tekan 🩺 Health Check untuk cek status server.",
+        reply_markup=kb,
     )
 
 

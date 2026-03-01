@@ -105,6 +105,12 @@ class GatewayClient:
     async def gemini_autologin_status(self) -> Dict[str, Any]:
         return await self._get("/admin/gemini/autologin/status")
 
+    async def gemini_autoregister(self, domain: str = "", count: int = 1) -> Dict[str, Any]:
+        payload = {"count": count}
+        if domain:
+            payload["domain"] = domain
+        return await self._post("/admin/gemini/autoregister", payload)
+
     async def list_images(self, limit: int = 12) -> Dict[str, Any]:
         return await self._get(f"/admin/images/list?limit={limit}")
 

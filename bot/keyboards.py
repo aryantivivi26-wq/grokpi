@@ -256,7 +256,10 @@ def gemini_menu_keyboard(server_data: list | None = None) -> InlineKeyboardMarku
         rows.append([InlineKeyboardButton(text="📋 List / Status", callback_data="gem:list")])
 
     rows.extend([
-        [InlineKeyboardButton(text="➕ Add Server", callback_data="gem:add")],
+        [
+            InlineKeyboardButton(text="➕ Add Server", callback_data="gem:add"),
+            InlineKeyboardButton(text="🆕 Auto-Register", callback_data="gem:autoreg"),
+        ],
         [
             InlineKeyboardButton(text="🔄 Reload Gateway", callback_data="gem:reload"),
             InlineKeyboardButton(text="🩺 Health Check", callback_data="gem:health"),

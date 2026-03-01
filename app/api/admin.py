@@ -336,3 +336,31 @@ async def gemini_autologin_status():
     """Get current auto-login service status."""
     from app.services.gemini_login_service import gemini_auto_login
     return gemini_auto_login.get_status()
+
+
+class GeminiAutoRegisterRequest(BaseModel):
+    domain: Optional[str] = None
+    count: int = 1
+
+
+@router.post("/gemini/autoregister")
+async def gemini_autoregister(body: GeminiAutoRegisterRequest):
+    """Auto-register a new Gemini Business account via headless Chrome.
+    
+    Generates a random email at the specified domain (or GENERATOR_EMAIL_DOMAINS),
+    then logs in via browser automation to create a new Gemini Business account.
+    """
+    from app.services.gemini_login_service import gemini_auto_login
+
+    results = []
+    for i in range(min(body.count, 5)):  # Max 5 at a time
+        result = await gemini_auto_login.register_new_account(domain=body.domain or "")
+        results.append(result)
+        if not result.get("success"):
+            break  # Stop on first failure
+
+    return {
+        "total": len(results),
+        "success": sum(1 for r in results if r.get("success")),
+        "results": results,
+    }

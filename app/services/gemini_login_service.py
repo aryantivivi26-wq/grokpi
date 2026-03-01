@@ -185,6 +185,111 @@ class GeminiAutoLoginService:
             "domains_configured": len(GENERATOR_EMAIL_DOMAINS),
         }
 
+    async def register_new_account(self, domain: str = "") -> dict:
+        """
+        Auto-register a new Gemini Business account.
+
+        Flow:
+        1. Generate random email@domain via GeneratorEmailClient
+        2. Launch headless Chrome → navigate Gemini auth
+        3. Google sends verification code → generator.email receives it
+        4. Enter code → complete registration → extract cookies
+
+        Returns:
+            dict with success, email, and config (cookies + config_id etc.)
+        """
+        mail_domains = [domain] if domain else GENERATOR_EMAIL_DOMAINS
+        if not mail_domains:
+            return {
+                "success": False,
+                "error": "No generator.email domains configured. Set GENERATOR_EMAIL_DOMAINS env var.",
+            }
+
+        self._current_login = "(registering...)"
+        logger.info("[AutoRegister] Starting new account registration")
+
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                self._executor,
+                self._do_register,
+                mail_domains,
+            )
+        except Exception as exc:
+            logger.error("[AutoRegister] Register executor error: %s", exc)
+            result = {"success": False, "error": str(exc)}
+        finally:
+            self._current_login = None
+
+        return result
+
+    def _do_register(self, mail_domains: list) -> dict:
+        """Synchronous register in thread pool."""
+        try:
+            from .automation.browser_login import GeminiAutomation
+            from .automation.email_client import GeneratorEmailClient
+
+            def log_cb(level, message):
+                getattr(logger, level if level in ("info", "warning", "error", "debug") else "info")(
+                    "[AutoRegister] %s", message
+                )
+
+            # Step 1: Generate random email
+            log_cb("info", "📧 Step 1/3: Generating random email...")
+            mail_client = GeneratorEmailClient(
+                domains=mail_domains,
+                log_callback=log_cb,
+            )
+            if not mail_client.register_account():
+                return {"success": False, "error": "Failed to generate email address"}
+
+            email = mail_client.email
+            log_cb("info", f"✅ Email generated: {email}")
+
+            # Step 2: Launch browser automation
+            log_cb("info", "🌐 Step 2/3: Launching headless Chrome...")
+            automation = GeminiAutomation(
+                proxy=AUTH_PROXY,
+                headless=BROWSER_HEADLESS,
+                timeout=120,
+                log_callback=log_cb,
+            )
+
+            # Step 3: Login (which also handles first-time registration)
+            log_cb("info", "🔐 Step 3/3: Gemini login/register...")
+            result = automation.login_and_extract(email, mail_client)
+
+            if not result.get("success"):
+                error = result.get("error", "Unknown error")
+                log_cb("error", f"❌ Registration failed: {error}")
+                return {"success": False, "error": error}
+
+            config = result["config"]
+            log_cb("info", f"✅ Registration successful! Email: {email}")
+            return {
+                "success": True,
+                "email": email,
+                "config": {
+                    "secure_c_ses": config.get("secure_c_ses", ""),
+                    "host_c_oses": config.get("host_c_oses", ""),
+                    "csesidx": config.get("csesidx", ""),
+                    "config_id": config.get("config_id", ""),
+                    "expires_at": config.get("expires_at", ""),
+                    "email": email,
+                    "mail_provider": "generatoremail",
+                },
+            }
+
+        except ImportError as exc:
+            logger.error("[AutoRegister] Missing dependency: %s", exc)
+            return {
+                "success": False,
+                "error": f"Missing dependency: {exc}. Install DrissionPage and Chromium.",
+            }
+        except Exception as exc:
+            logger.error("[AutoRegister] Unexpected error: %s", exc)
+            return {"success": False, "error": str(exc)}
+
 
 # Singleton
 gemini_auto_login = GeminiAutoLoginService()

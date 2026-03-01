@@ -657,3 +657,86 @@ async def gemini_set_email_start(callback: CallbackQuery, state: FSMContext) -> 
         reply_markup=gemini_input_keyboard(),
     )
     await callback.answer()
+
+
+# ---- Auto-Register (auto-create new Gemini accounts) ----
+
+@router.callback_query(F.data == "gem:autoreg")
+async def gemini_autoregister(callback: CallbackQuery) -> None:
+    """Auto-register a new Gemini account via headless Chrome + generator.email."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    if not is_admin(user_id):
+        await callback.answer("Akses ditolak", show_alert=True)
+        return
+
+    await callback.answer("🆕 Starting auto-register... (bisa 2-5 menit)", show_alert=True)
+
+    kb = await _build_menu_keyboard()
+    await safe_edit_text(
+        callback.message,
+        "🆕 <b>Auto-Register Gemini Account</b>\n\n"
+        "⏳ Sedang membuat akun baru via headless Chrome...\n"
+        "• Generate random email di generator.email\n"
+        "• Login/register via Google\n"
+        "• Extract cookies\n\n"
+        "Proses ini bisa memakan waktu 2-5 menit.",
+        reply_markup=kb,
+    )
+
+    try:
+        result = await gateway_client.gemini_autoregister(count=1)
+
+        results_list = result.get("results", [])
+        if results_list and results_list[0].get("success"):
+            reg = results_list[0]
+            config = reg.get("config", {})
+
+            # Add to local gemini manager
+            add_result = gemini_mgr.add_account(
+                secure_c_ses=config.get("secure_c_ses", ""),
+                host_c_oses=config.get("host_c_oses", ""),
+                csesidx=config.get("csesidx", ""),
+                config_id=config.get("config_id", ""),
+                email=config.get("email", reg.get("email", "")),
+                mail_provider=config.get("mail_provider", "generatoremail"),
+            )
+
+            # Reload gateway
+            try:
+                accounts_json = gemini_mgr.get_config_json()
+                await gateway_client.reload_gemini(accounts_json)
+            except Exception as reload_exc:
+                logger.warning("Gateway reload after auto-register failed: %s", reload_exc)
+
+            kb = await _refresh_health_and_build_menu()
+            email_display = config.get("email", reg.get("email", "?"))
+            expires = config.get("expires_at", "?")
+            await safe_edit_text(
+                callback.message,
+                f"✅ <b>Auto-Register Berhasil!</b>\n\n"
+                f"📧 Email: <code>{email_display}</code>\n"
+                f"⏰ Expires: {expires}\n"
+                f"📊 Total servers: {add_result.get('after_count', '?')}\n"
+                f"🔄 Gateway reloaded.",
+                reply_markup=kb,
+            )
+        else:
+            error = "Unknown error"
+            if results_list:
+                error = results_list[0].get("error", error)
+            elif result.get("error"):
+                error = result["error"]
+            kb = await _build_menu_keyboard()
+            await safe_edit_text(
+                callback.message,
+                f"❌ <b>Auto-Register Gagal</b>\n\n"
+                f"Error: {str(error)[:300]}",
+                reply_markup=kb,
+            )
+    except Exception as exc:
+        kb = await _build_menu_keyboard()
+        await safe_edit_text(
+            callback.message,
+            f"❌ Auto-Register error: {exc}",
+            reply_markup=kb,
+        )
