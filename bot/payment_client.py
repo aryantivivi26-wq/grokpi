@@ -97,6 +97,17 @@ class QRISClient:
             f"{_BASE}/check-status/{transaction_id}",
             headers=self._headers(),
         ) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if resp.status != 200:
+                body = await resp.text()
+                raise RuntimeError(
+                    f"QRIS check-status {resp.status}: {body[:200]}"
+                )
+            if "json" not in content_type:
+                body = await resp.text()
+                raise RuntimeError(
+                    f"QRIS returned non-JSON ({content_type}): {body[:200]}"
+                )
             data = await resp.json()
             return data
 

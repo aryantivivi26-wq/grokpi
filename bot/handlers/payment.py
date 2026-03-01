@@ -217,6 +217,8 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
         else:
             b64_data = qris_image_b64
         image_bytes = base64.b64decode(b64_data)
+        if len(image_bytes) < 100:
+            raise ValueError(f"QR image too small ({len(image_bytes)} bytes), API mungkin bermasalah")
         photo = BufferedInputFile(image_bytes, filename="qris.png")
         await bot.send_photo(
             chat_id=chat_id,
