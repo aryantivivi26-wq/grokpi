@@ -45,9 +45,11 @@ def _image_settings_text(aspect: str, n: int, max_batch: int = 1) -> str:
     if max_batch > 1:
         batch_line = f" · Batch max <b>{max_batch}</b>"
     return (
-        "<b>🖼 Image</b>\n"
-        f"Ratio <b>{aspect}</b> · Jumlah <b>{n}</b>{batch_line}\n\n"
-        "Atur parameter lalu tekan <b>Enter Prompt</b>."
+        "<b>🖼 Buat Gambar</b>\n"
+        f"Rasio <b>{aspect}</b> · Jumlah <b>{n}</b>{batch_line}\n\n"
+        "Atur rasio dan jumlah gambar di bawah,\n"
+        "lalu tekan <b>✏️ Tulis Prompt</b> dan ketik deskripsi gambar.\n"
+        "<i>Contoh: kucing lucu memakai topi astronot</i>"
     )
 
 
@@ -88,8 +90,9 @@ async def open_image_menu(callback: CallbackQuery, state: FSMContext) -> None:
         await safe_edit_text(
             callback.message,
             "<b>✦ Gemini Image</b>\n"
-            "Format otomatis · 1 gambar\n\n"
-            "Kirim prompt sekarang.",
+            "Format dan rasio otomatis · 1 gambar per prompt\n\n"
+            "Silakan ketik deskripsi gambar yang kamu inginkan.\n"
+            "<i>Contoh: pemandangan gunung saat matahari terbit</i>",
         )
         await callback.answer()
         return
@@ -177,7 +180,11 @@ async def ask_image_prompt(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.set_state(ImageFlow.waiting_prompt)
-    await safe_edit_text(callback.message, "Kirim <b>1 prompt</b> gambar sekarang.")
+    await safe_edit_text(
+        callback.message,
+        "Ketik deskripsi gambar yang kamu inginkan.\n"
+        "<i>Contoh: kucing lucu memakai topi astronot</i>"
+    )
     await callback.answer()
 
 
@@ -213,9 +220,12 @@ async def ask_batch_prompts(callback: CallbackQuery, state: FSMContext) -> None:
     await safe_edit_text(
         callback.message,
         (
-            f"<b>Batch Prompt</b>\n\n"
-            f"Max <b>{tier_limits.max_batch_prompts}</b> prompt, satu per baris.\n"
-            f"Tiap prompt → <b>{n}</b> gambar.\n\n"
+            f"<b>Batch Prompt</b>\n"
+            f"Kirim beberapa deskripsi gambar sekaligus.\n\n"
+            f"Tulis max <b>{tier_limits.max_batch_prompts}</b> prompt,\n"
+            f"satu deskripsi per baris.\n"
+            f"Tiap deskripsi menghasilkan <b>{n}</b> gambar.\n\n"
+            f"<i>Contoh:</i>\n"
             f"<code>kucing lucu di taman\n"
             f"sunset di pantai\n"
             f"robot futuristik</code>"

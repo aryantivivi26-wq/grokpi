@@ -176,8 +176,9 @@ class SubscriptionManager:
         limits = TIER_LIMITS[tier]
 
         lines = [
-            "<b>💎 Subscription</b>",
-            f"Tier: <b>{TIER_LABELS[tier]}</b>",
+            "<b>💎 Langganan</b>",
+            "<i>Paket langganan menentukan kuota harianmu</i>\n",
+            f"Tier kamu: <b>{TIER_LABELS[tier]}</b>",
         ]
 
         if sub.expires > 0:
@@ -193,12 +194,15 @@ class SubscriptionManager:
                 lines.append("Status: <b>Expired</b>")
         else:
             if tier == Tier.FREE:
-                lines.append("Status: <b>Free (default)</b>")
+                lines.append("Status: <b>Free (gratis, kuota terbatas)</b>")
 
         img_txt = "∞" if limits.is_unlimited_images else f"{limits.images_per_day}/hari"
         vid_txt = "∞" if limits.is_unlimited_videos else f"{limits.videos_per_day}/hari"
-        lines.append(f"\nImg <b>{img_txt}</b> · Vid <b>{vid_txt}</b>")
-        lines.append(f"Max <b>{limits.max_images_per_request}</b>/req · Batch <b>{limits.max_batch_prompts}</b>")
+        lines.append(f"\nKuota harian: Img <b>{img_txt}</b> · Vid <b>{vid_txt}</b>")
+        lines.append(f"Max <b>{limits.max_images_per_request}</b> gambar/permintaan · Batch <b>{limits.max_batch_prompts}</b>")
+
+        if tier == Tier.FREE:
+            lines.append("\n<i>Upgrade ke Basic/Premium untuk kuota lebih besar.</i>")
 
         return "\n".join(lines)
 

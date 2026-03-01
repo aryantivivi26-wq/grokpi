@@ -72,7 +72,9 @@ async def pay_choose_tier(callback: CallbackQuery, state: FSMContext) -> None:
     await clear_state(state)
     await safe_edit_text(
         callback.message,
-        "<b>Beli Subscription</b>\n\nPilih tier:",
+        "<b>Beli Subscription</b>\n"
+        "<i>Pilih paket untuk upgrade kuota harian</i>\n\n"
+        "Pilih tier:",
         reply_markup=pay_tier_keyboard(),
     )
     await callback.answer()
@@ -119,7 +121,7 @@ async def pay_confirm(callback: CallbackQuery) -> None:
         f"Tier: <b>{tier_label}</b>\n"
         f"Durasi: <b>{dur_label}</b>\n"
         f"Harga: <b>{_format_rp(amount)}</b>\n\n"
-        f"Lanjutkan ke QRIS?"
+        f"Tekan tombol di bawah untuk lanjut ke pembayaran QRIS."
     )
     await safe_edit_text(
         callback.message,
@@ -195,14 +197,18 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
     tier_label = TIER_LABELS.get(Tier(tier), tier)
     dur_label = DURATION_LABELS.get(Duration(duration), duration)
     caption = (
-        f"<b>Scan QRIS</b>\n\n"
+        f"<b>Scan QRIS untuk Bayar</b>\n\n"
         f"Order: <code>{order_id}</code>\n"
         f"Tier: <b>{tier_label}</b> · {dur_label}\n"
         f"Total: <b>{_format_rp(amount_total)}</b>\n"
     )
     if expires_at:
-        caption += f"Expired: <b>{expires_at}</b>\n"
-    caption += "\nBot otomatis cek pembayaran."
+        caption += f"Berlaku sampai: <b>{expires_at}</b>\n"
+    caption += (
+        "\nBuka e-wallet (GoPay, OVO, Dana, dll),\n"
+        "scan kode QR di atas, lalu bayar.\n\n"
+        "<i>Bot otomatis mengecek pembayaran.</i>"
+    )
 
     # Send QR image
     chat_id = callback.message.chat.id if callback.message else user_id

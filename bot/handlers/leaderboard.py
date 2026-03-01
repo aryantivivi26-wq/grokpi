@@ -29,14 +29,16 @@ async def show_leaderboard(callback: CallbackQuery) -> None:
     if not top:
         await safe_edit_text(
             callback.message,
-            f"<b>🏆 Ranking — {month_label}</b>\n\nBelum ada data.",
+            f"<b>🏆 Ranking — {month_label}</b>\n\n"
+            "Belum ada data bulan ini.\n"
+            "Generate gambar atau video untuk masuk ranking!",
             reply_markup=_lb_keyboard(),
         )
         await callback.answer()
         return
 
-    lines = [f"<b>🏆 Ranking — {month_label}</b>\n"]
-    lines.append("Top generator:\n")
+    lines = [f"<b>🏆 Ranking — {month_label}</b>"]
+    lines.append("<i>User paling aktif bulan ini</i>\n")
 
     for i, entry in enumerate(top):
         medal = MEDALS[i] if i < len(MEDALS) else f"{i+1}."
@@ -58,15 +60,15 @@ async def show_leaderboard(callback: CallbackQuery) -> None:
             break
 
     if user_rank:
-        lines.append(f"\nPeringkat kamu: <b>#{user_rank}</b>")
+        lines.append(f"\nPeringkat kamu: <b>#{user_rank}</b> 🎉")
     else:
         # Get user's own usage
         usage = await db.get_usage(user_id)
         total_own = usage["images"] + usage["videos"]
         if total_own > 0:
-            lines.append(f"\nBelum masuk top 10. Total hari ini: {total_own}")
+            lines.append(f"\nKamu belum masuk top 10. Total bulan ini: {total_own}")
         else:
-            lines.append("\nGenerate untuk masuk ranking!")
+            lines.append("\nGenerate gambar/video untuk masuk ranking!")
 
     await safe_edit_text(
         callback.message,

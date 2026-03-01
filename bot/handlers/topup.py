@@ -87,10 +87,12 @@ async def show_topup_menu(callback: CallbackQuery) -> None:
     extra = await db.get_extra_quota(callback.from_user.id)
     text = (
         "<b>📦 Topup Kuota</b>\n"
+        "<i>Beli kuota tambahan untuk image atau video</i>\n"
         "─────────────────\n\n"
-        "Kuota tambahan, <b>tidak expired</b>.\n\n"
-        f"Saldo: <b>{extra['images']}</b> img · <b>{extra['videos']}</b> vid\n\n"
-        "Pilih paket:"
+        "Kuota topup <b>tidak pernah expired</b>.\n"
+        "Dipakai setelah kuota harian habis.\n\n"
+        f"Saldo extra kamu: <b>{extra['images']}</b> img · <b>{extra['videos']}</b> vid\n\n"
+        "Pilih paket di bawah:"
     )
     await safe_edit_text(callback.message, text, reply_markup=_topup_menu_keyboard())
     await callback.answer()
@@ -125,7 +127,8 @@ async def topup_buy(callback: CallbackQuery) -> None:
         f"<b>Konfirmasi Topup</b>\n\n"
         f"Paket: <b>{pack['label']}</b>\n"
         f"Harga: <b>{_format_rp(pack['price'])}</b>\n\n"
-        f"Langsung ditambahkan ke saldo extra."
+        f"Kuota langsung ditambahkan ke saldo extra kamu\n"
+        f"setelah pembayaran berhasil."
     )
     await safe_edit_text(
         callback.message,
@@ -189,11 +192,13 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
     )
 
     caption = (
-        f"<b>Scan QRIS — Topup</b>\n\n"
+        f"<b>Scan QRIS untuk Bayar</b>\n\n"
         f"Order: <code>{order_id}</code>\n"
         f"Paket: <b>{pack['label']}</b>\n"
         f"Total: <b>{_format_rp(amount_total)}</b>\n\n"
-        f"Bot otomatis cek pembayaran."
+        f"Buka aplikasi e-wallet (GoPay, OVO, Dana, dll),\n"
+        f"scan kode QR di atas, lalu bayar.\n\n"
+        f"<i>Bot otomatis mengecek pembayaran.</i>"
     )
 
     chat_id = callback.message.chat.id

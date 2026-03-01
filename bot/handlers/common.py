@@ -22,7 +22,10 @@ from ..user_limit_manager import user_limit_manager
 
 router = Router()
 
-HOME_TEXT = "<b>GrokPi</b> — Pilih menu di bawah."
+HOME_TEXT = (
+    "<b>GrokPi</b> — Bot pembuat gambar &amp; video AI.\n"
+    "Pilih menu di bawah untuk mulai."
+)
 
 # Trial duration: 12 hours
 TRIAL_SECONDS = 12 * 3600
@@ -77,9 +80,12 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
             )
             await db.mark_trial_used(user_id)
             extra_messages.append(
-                "🎁 <b>Welcome!</b>\n"
-                "Kamu dapat <b>💎 Premium Trial 12 Jam</b> gratis.\n"
-                "Generate tanpa batas selama trial berlaku."
+                "🎁 <b>Selamat Datang!</b>\n\n"
+                "Kamu mendapat <b>💎 Premium Trial 12 Jam</b> gratis.\n\n"
+                "Selama trial, kamu bisa:\n"
+                "• Generate gambar &amp; video <b>tanpa batas</b>\n"
+                "• Batch beberapa prompt sekaligus\n\n"
+                "<i>Trial berakhir otomatis setelah 12 jam.</i>"
             )
 
     # Subscription info
@@ -100,10 +106,11 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
     backend_label = {"grok": "⚡ Grok", "gemini": "✦ Gemini"}.get(backend, backend)
 
     lines = [
-        f"Halo, <b>{name}</b>!",
-        f"{now.strftime('%d %b %Y · %H:%M')}\n",
+        f"Halo, <b>{name}</b>! Selamat datang di <b>GrokPi</b>.",
+        f"Bot ini bisa membuat <b>gambar</b> dan <b>video</b> dari teks menggunakan AI.\n",
         f"<code>{user_id}</code> · {username} · {tier_label}",
-        f"Model: <b>{backend_label}</b> — <i>tekan tombol model di bawah untuk ganti</i>",
+        f"Model aktif: <b>{backend_label}</b>",
+        f"<i>Tekan tombol model di bawah kalau mau ganti.</i>",
     ]
 
     # Subscription status
@@ -154,23 +161,29 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     text = (
-        "<b>Bantuan</b>\n"
+        "<b>Bantuan — Cara Pakai GrokPi</b>\n"
         "─────────────────\n\n"
-        "/start · Menu utama\n"
-        "/help · Bantuan\n"
-        "/cancel · Batalkan proses\n"
-        "/admin · Panel admin\n"
-        "/gemini · Gemini manager\n\n"
-        "🖼 Image · Generate gambar\n"
-        "🎬 Video · Generate video\n"
-        "💎 Langganan · Kelola subscription\n"
-        "📊 Kuota · Cek sisa limit\n"
-        "📦 Topup · Beli kuota tambahan\n"
-        "🏆 Ranking · Leaderboard bulanan\n"
-        "🔗 Referral · Ajak teman, dapat bonus\n\n"
-        "<i>User baru dapat trial Premium 12 jam.\n"
-        "Referral → bonus +10 image.\n"
-        "Kuota topup tidak expired.</i>"
+        "<b>Cara mulai:</b>\n"
+        "1. Tekan /start untuk buka menu\n"
+        "2. Pilih <b>🖼 Image</b> atau <b>🎬 Video</b>\n"
+        "3. Atur pengaturan lalu ketik perintah (prompt)\n"
+        "4. Tunggu hasil jadi — bot akan kirim hasilnya\n\n"
+        "<b>Menu:</b>\n"
+        "🖼 <b>Image</b> — Buat gambar dari teks\n"
+        "🎬 <b>Video</b> — Buat video pendek dari teks\n"
+        "💎 <b>Langganan</b> — Lihat/upgrade paket kamu\n"
+        "📊 <b>Kuota</b> — Cek sisa jatah harian\n"
+        "📦 <b>Topup</b> — Beli kuota tambahan (tidak expired)\n"
+        "🏆 <b>Ranking</b> — Papan peringkat bulanan\n"
+        "🔗 <b>Referral</b> — Ajak teman, dapat bonus gratis\n\n"
+        "<b>Perintah:</b>\n"
+        "/start — Kembali ke menu utama\n"
+        "/help — Tampilkan bantuan ini\n"
+        "/cancel — Batalkan proses yang sedang berjalan\n\n"
+        "<i>Tanya jawab:\n"
+        "• User baru otomatis dapat trial Premium 12 jam.\n"
+        "• Referral → kamu &amp; teman dapat +10 image gratis.\n"
+        "• Kuota topup tidak pernah expired.</i>"
     )
     await message.answer(text)
 
@@ -252,10 +265,11 @@ async def open_backend_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await safe_edit_text(
         callback.message,
         (
-            "<b>Pilih Model</b>\n\n"
-            "⚡ <b>Grok</b> — xAI image &amp; video\n"
-            "✦ <b>Gemini</b> — Google image &amp; video\n\n"
-            f"Aktif: <b>{current.title()}</b>"
+            "<b>Pilih Model AI</b>\n\n"
+            "⚡ <b>Grok</b> — AI dari xAI. Bisa atur rasio, jumlah, batch.\n"
+            "✦ <b>Gemini</b> — AI dari Google. Otomatis, tanpa pengaturan.\n\n"
+            f"Saat ini aktif: <b>{current.title()}</b>\n"
+            "<i>Tekan salah satu untuk mengganti model.</i>"
         ),
         reply_markup=backend_select_keyboard(current),
     )
@@ -294,7 +308,7 @@ async def show_my_limit(callback: CallbackQuery, state: FSMContext) -> None:
 
     if admin_user:
         text = (
-            "<b>📊 Kuota</b>\n\n"
+            "<b>📊 Kuota Harian</b>\n\n"
             "Role: <b>Admin</b>\n"
             "Limit: <b>Unlimited</b>"
         )
@@ -305,7 +319,8 @@ async def show_my_limit(callback: CallbackQuery, state: FSMContext) -> None:
         vid_txt = f"{status['videos_used']}/∞" if vid_limit >= UNLIMITED else f"{status['videos_used']}/{vid_limit}"
 
         text = (
-            "<b>📊 Kuota</b>\n"
+            "<b>📊 Kuota Harian</b>\n"
+            "<i>Jatah pemakaian kamu hari ini</i>\n"
             "─────────────────\n\n"
             f"Tier: <b>{tier_label}</b>\n"
         )
@@ -322,9 +337,9 @@ async def show_my_limit(callback: CallbackQuery, state: FSMContext) -> None:
                     text += f"Sisa: <b>{hours}j {mins}m</b>\n"
 
         text += (
-            f"\nImage: <b>{img_txt}</b>\n"
-            f"Video: <b>{vid_txt}</b>\n"
-            f"Reset: 00:00 WIB\n"
+            f"\nImage: <b>{img_txt}</b> (gambar)\n"
+            f"Video: <b>{vid_txt}</b> (video)\n"
+            f"Reset: setiap hari pukul 00:00 WIB\n"
         )
 
         extra_img = status.get("extra_images", 0)
@@ -334,6 +349,7 @@ async def show_my_limit(callback: CallbackQuery, state: FSMContext) -> None:
 
         from ..rate_limiter import get_cooldown_text
         text += f"\nCooldown: <b>{get_cooldown_text(tier)}</b>"
+        text += "\n\n<i>Kuota reset otomatis setiap hari.\nMau lebih? Upgrade langganan atau topup.</i>"
 
     await safe_edit_text(callback.message, text, reply_markup=main_menu_keyboard(await get_backend(state)))
     await callback.answer()
@@ -359,5 +375,7 @@ async def noop_callback(callback: CallbackQuery) -> None:
 @router.message(StateFilter(None))
 async def fallback_message(message: Message) -> None:
     await message.answer(
-        "Perintah tidak dikenali. Ketik /start atau /help."
+        "Perintah tidak dikenali.\n\n"
+        "Ketik /start untuk buka menu utama,\n"
+        "atau /help untuk panduan lengkap."
     )

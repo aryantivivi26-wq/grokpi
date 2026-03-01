@@ -44,12 +44,14 @@ async def show_referral_menu(callback: CallbackQuery) -> None:
 
     text = (
         "<b>🔗 Referral</b>\n"
+        "<i>Ajak teman pakai GrokPi, kalian berdua dapat bonus</i>\n"
         "─────────────────\n\n"
-        f"Link:\n<code>{ref_link}</code>\n\n"
+        f"Link undangan kamu:\n<code>{ref_link}</code>\n\n"
+        "Kirim link ini ke teman. Saat mereka bergabung,\n"
+        f"kalian berdua dapat <b>+{REFERRAL_BONUS_IMAGES} image</b> gratis.\n\n"
         f"Teman bergabung: <b>{ref_count}</b>\n"
-        f"Bonus diterima: <b>+{ref_count * REFERRAL_BONUS_IMAGES}</b> img\n\n"
-        f"Extra: <b>{extra['images']}</b> img · <b>{extra['videos']}</b> vid\n\n"
-        f"<i>Tiap teman yang join, kalian berdua dapat +{REFERRAL_BONUS_IMAGES} image.</i>"
+        f"Bonus diterima: <b>+{ref_count * REFERRAL_BONUS_IMAGES}</b> img\n"
+        f"Extra saat ini: <b>{extra['images']}</b> img · <b>{extra['videos']}</b> vid"
     )
 
     from ..keyboards import referral_keyboard

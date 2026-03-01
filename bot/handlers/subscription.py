@@ -56,15 +56,19 @@ async def show_sub_info(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "subs:tiers")
 async def show_tier_comparison(callback: CallbackQuery) -> None:
-    lines = ["<b>Perbandingan Tier</b>\n"]
+    lines = [
+        "<b>Perbandingan Tier</b>",
+        "<i>Semakin tinggi tier, semakin banyak kuota</i>\n",
+    ]
     for tier in Tier:
         lim = TIER_LIMITS[tier]
-        img_txt = "∞" if lim.is_unlimited_images else f"{lim.images_per_day}/hari"
-        vid_txt = "∞" if lim.is_unlimited_videos else f"{lim.videos_per_day}/hari"
+        img_txt = "∞ (tanpa batas)" if lim.is_unlimited_images else f"{lim.images_per_day}/hari"
+        vid_txt = "∞ (tanpa batas)" if lim.is_unlimited_videos else f"{lim.videos_per_day}/hari"
         lines.append(
             f"<b>{TIER_LABELS[tier]}</b>\n"
-            f"  Img {img_txt} · Vid {vid_txt}\n"
-            f"  Max {lim.max_images_per_request}/req · Batch {lim.max_batch_prompts}"
+            f"  Gambar: {img_txt}\n"
+            f"  Video: {vid_txt}\n"
+            f"  Max {lim.max_images_per_request} gambar/permintaan · Batch {lim.max_batch_prompts}"
         )
         lines.append("")
 

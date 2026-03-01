@@ -51,9 +51,11 @@ def _is_local_url(url: str) -> bool:
 
 def _video_settings_text(aspect: str, duration: int, resolution: str, preset: str) -> str:
     return (
-        "<b>🎬 Video</b>\n"
-        f"Ratio <b>{aspect}</b> · <b>{duration}s</b> · <b>{resolution}</b> · <b>{preset}</b>\n\n"
-        "Atur parameter lalu tekan <b>Enter Prompt</b>."
+        "<b>🎬 Buat Video</b>\n"
+        f"Rasio <b>{aspect}</b> · <b>{duration}s</b> · <b>{resolution}</b> · <b>{preset}</b>\n\n"
+        "Atur pengaturan di bawah,\n"
+        "lalu tekan <b>✏️ Tulis Prompt</b> dan ketik deskripsi video.\n"
+        "<i>Contoh: ombak laut di pantai saat senja</i>"
     )
 
 
@@ -101,8 +103,9 @@ async def open_video_menu(callback: CallbackQuery, state: FSMContext) -> None:
         await safe_edit_text(
             callback.message,
             "<b>✦ Gemini Video</b>\n"
-            "Landscape · 8 detik\n\n"
-            "Kirim prompt sekarang.",
+            "Format landscape · durasi 8 detik\n\n"
+            "Silakan ketik deskripsi video yang kamu inginkan.\n"
+            "<i>Contoh: kucing bermain di taman bunga</i>",
         )
         await callback.answer()
         return
@@ -208,7 +211,11 @@ async def ask_video_prompt(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     await state.set_state(VideoFlow.waiting_prompt)
-    await safe_edit_text(callback.message, "Kirim prompt video sekarang.")
+    await safe_edit_text(
+        callback.message,
+        "Ketik deskripsi video yang kamu inginkan.\n"
+        "<i>Contoh: ombak laut di pantai saat senja</i>"
+    )
     await callback.answer()
 
 
