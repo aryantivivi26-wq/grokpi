@@ -96,10 +96,14 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
     stats = await db.get_bot_stats()
 
     # Build welcome text
+    backend = await get_backend(state)
+    backend_label = {"grok": "⚡ Grok", "gemini": "✦ Gemini"}.get(backend, backend)
+
     lines = [
         f"Halo, <b>{name}</b>!",
         f"{now.strftime('%d %b %Y · %H:%M')}\n",
         f"<code>{user_id}</code> · {username} · {tier_label}",
+        f"Model: <b>{backend_label}</b> — <i>tekan tombol model di bawah untuk ganti</i>",
     ]
 
     # Subscription status
@@ -144,7 +148,7 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
     for extra_msg in extra_messages:
         await message.answer(extra_msg)
 
-    await message.answer("\n".join(lines), reply_markup=main_menu_keyboard(await get_backend(state)))
+    await message.answer("\n".join(lines), reply_markup=main_menu_keyboard(backend))
 
 
 @router.message(Command("help"))
