@@ -14,6 +14,7 @@ from ..states import VideoFlow
 from ..subscription_manager import subscription_manager
 from ..ui import clear_state, get_backend, safe_edit_text
 from ..user_limit_manager import user_limit_manager
+from .common import HOME_TEXT
 
 router = Router()
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -50,12 +51,9 @@ def _is_local_url(url: str) -> bool:
 
 def _video_settings_text(aspect: str, duration: int, resolution: str, preset: str) -> str:
     return (
-        "🎬 <b>Video Generator</b>\n"
-        f"• Aspect ratio: <b>{aspect}</b>\n"
-        f"• Duration: <b>{duration}s</b>\n"
-        f"• Resolution: <b>{resolution}</b>\n"
-        f"• Preset: <b>{preset}</b>\n\n"
-        "Atur parameter, lalu klik <b>Enter Prompt</b>."
+        "<b>🎬 Video</b>\n"
+        f"Ratio <b>{aspect}</b> · <b>{duration}s</b> · <b>{resolution}</b> · <b>{preset}</b>\n\n"
+        "Atur parameter lalu tekan <b>Enter Prompt</b>."
     )
 
 
@@ -86,30 +84,25 @@ async def open_video_menu(callback: CallbackQuery, state: FSMContext) -> None:
         tier = await subscription_manager.get_tier(user_id)
         allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
         if not allowed_cd:
-            await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+            await callback.answer(f"Cooldown {remaining_cd}s", show_alert=True)
             return
         allowed, status = await user_limit_manager.can_consume(
             user_id, video_units=1, is_admin_user=admin_user,
         )
         if not allowed:
-            await callback.answer("Limit video harian habis", show_alert=True)
+            await callback.answer("Limit video habis", show_alert=True)
             await safe_edit_text(
                 callback.message,
-                (
-                    "❌ <b>Limit video harian habis</b>\n"
-                    f"Sisa video hari ini: <b>{status['videos_remaining']}</b>\n"
-                    "Cek menu <b>My Limit</b> untuk detail."
-                ),
+                f"Limit video habis. Sisa: <b>{status['videos_remaining']}</b>",
                 reply_markup=main_menu_keyboard(backend),
             )
             return
         await state.set_state(VideoFlow.waiting_prompt)
         await safe_edit_text(
             callback.message,
-            "🎬 <b>Gemini Video Generator</b>\n"
-            "• Format: <b>Landscape</b> (otomatis)\n"
-            "• Durasi: <b>8 detik</b>\n\n"
-            "✍️ Kirim prompt video sekarang.",
+            "<b>✦ Gemini Video</b>\n"
+            "Landscape · 8 detik\n\n"
+            "Kirim prompt sekarang.",
         )
         await callback.answer()
         return
@@ -197,7 +190,7 @@ async def ask_video_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     tier = await subscription_manager.get_tier(user_id)
     allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
     if not allowed_cd:
-        await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+        await callback.answer(f"Cooldown {remaining_cd}s", show_alert=True)
         return
 
     allowed, status = await user_limit_manager.can_consume(
@@ -206,14 +199,10 @@ async def ask_video_prompt(callback: CallbackQuery, state: FSMContext) -> None:
         is_admin_user=admin_user,
     )
     if not allowed:
-        await callback.answer("Limit video harian habis", show_alert=True)
+        await callback.answer("Limit video habis", show_alert=True)
         await safe_edit_text(
             callback.message,
-            (
-                "❌ <b>Limit video harian habis</b>\n"
-                f"Sisa video hari ini: <b>{status['videos_remaining']}</b>\n"
-                "Cek menu <b>My Limit</b> untuk detail."
-            ),
+            f"Limit video habis. Sisa: <b>{status['videos_remaining']}</b>",
             reply_markup=main_menu_keyboard(await get_backend(state)),
         )
         return
@@ -240,16 +229,13 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
     if not allowed:
         await clear_state(state)
         await message.answer(
-            (
-                "❌ Limit video harian habis.\n"
-                f"Sisa video hari ini: {status['videos_remaining']}"
-            )
+            f"Limit video habis. Sisa: {status['videos_remaining']}"
         )
-        await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
+        await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
         return
 
     aspect, duration, resolution, preset = await _ensure_video_defaults(state)
-    wait_msg = await message.answer("⏳ Sedang generate video... proses bisa lebih lama")
+    wait_msg = await message.answer("⏳ Generating video…")
 
     data = await state.get_data()
     backend = data.get("backend", "grok")
@@ -276,7 +262,7 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
         video_url = item.get("video_url") or item.get("url")
 
         if not video_url:
-            await wait_msg.edit_text("❌ Gagal: video URL tidak ditemukan di response.")
+            await wait_msg.edit_text("Gagal — video URL tidak ditemukan.")
         else:
             try:
                 await wait_msg.delete()
@@ -304,7 +290,7 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
                 )
                 record_request(user_id)
                 await clear_state(state)
-                await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
+                await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
                 return
             if not _is_local_url(video_url):
                 try:
@@ -325,23 +311,22 @@ async def handle_video_prompt(message: Message, state: FSMContext) -> None:
         exc_str = str(exc)
         if "403" in exc_str and ("Just a moment" in exc_str or "DOCTYPE" in exc_str or "Cloudflare" in exc_str):
             err_msg = (
-                "❌ <b>Generate video gagal: Cloudflare Block (403)</b>\n\n"
-                "Gateway ditolak oleh Cloudflare karena IP server berbeda dari IP saat mengambil "
-                "<code>CF_CLEARANCE</code>.\n\n"
-                "<b>Solusi:</b> Jalankan gateway di local PC kamu, lalu update "
-                "<code>CF_CLEARANCE</code> di file <code>.env</code>."
+                "<b>Cloudflare Block (403)</b>\n\n"
+                "IP server berbeda dari IP saat mengambil "
+                "<code>CF_CLEARANCE</code>.\n"
+                "Update <code>CF_CLEARANCE</code> di <code>.env</code>."
             )
         elif "rate_limit" in exc_str or "429" in exc_str:
-            err_msg = "❌ <b>Rate limit</b>: SSO key sudah mencapai batas. Coba beberapa saat lagi."
+            err_msg = "<b>Rate limit</b> — SSO key mencapai batas. Coba lagi nanti."
         elif "401" in exc_str or "unauthorized" in exc_str.lower():
-            err_msg = "❌ <b>Unauthorized</b>: SSO token tidak valid atau sudah kadaluarsa."
+            err_msg = "<b>Unauthorized</b> — SSO token invalid/expired."
         else:
             short = html.escape(exc_str[:300])
-            err_msg = f"❌ <b>Generate video gagal:</b>\n<code>{short}</code>"
+            err_msg = f"Generate gagal:\n<code>{short}</code>"
         try:
             await wait_msg.edit_text(err_msg)
         except Exception:
-            await wait_msg.edit_text("❌ Generate video gagal.")
+            await wait_msg.edit_text("Generate gagal.")
 
     await clear_state(state)
-    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
+    await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))

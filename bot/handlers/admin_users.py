@@ -67,11 +67,11 @@ async def adm_stats(callback: CallbackQuery) -> None:
 
     stats = await db.get_bot_stats()
     text = (
-        "📊 <b>Bot Statistics</b>\n\n"
-        f"👥 Total User: <b>{stats['total_users']}</b>\n"
-        f"💎 Subscriber Aktif: <b>{stats['active_subs']}</b>\n"
-        f"💰 Total Transaksi Paid: <b>{stats['total_paid']}</b>\n"
-        f"🟢 Aktif Hari Ini: <b>{stats['active_today']}</b>"
+        "<b>Bot Statistics</b>\n\n"
+        f"User: <b>{stats['total_users']}</b>\n"
+        f"Subscriber: <b>{stats['active_subs']}</b>\n"
+        f"Transaksi paid: <b>{stats['total_paid']}</b>\n"
+        f"Aktif hari ini: <b>{stats['active_today']}</b>"
     )
     await safe_edit_text(callback.message, text, reply_markup=admin_menu_keyboard())
     await callback.answer()
@@ -109,7 +109,7 @@ async def _show_user_page(callback: CallbackQuery, page: int) -> None:
     users = await db.list_users(limit=PAGE_SIZE, offset=page * PAGE_SIZE)
     now = time.time()
 
-    lines = [f"👥 <b>Semua User</b> ({total} user)\n"]
+    lines = [f"<b>Semua User</b> · {total}\n"]
     for u in users:
         uname = f"@{u['username']}" if u["username"] else "-"
         tier_row = await db.get_subscription(u["user_id"])
@@ -122,7 +122,7 @@ async def _show_user_page(callback: CallbackQuery, page: int) -> None:
             f"{tier_icon} <code>{u['user_id']}</code> — {html.escape(u['first_name'] or '-')} ({uname})"
         )
 
-    lines.append(f"\nKlik ID untuk detail, atau cari user:")
+    lines.append(f"\nKlik ID untuk detail.")
     await safe_edit_text(
         callback.message,
         "\n".join(lines),
@@ -143,7 +143,7 @@ async def adm_user_search(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminUserFlow.waiting_user_id)
     await safe_edit_text(
         callback.message,
-        "🔍 Kirim <b>User ID</b> (angka) yang ingin dilihat:",
+        "Kirim <b>User ID</b> yang ingin dilihat:",
     )
     await callback.answer()
 
@@ -154,14 +154,14 @@ async def adm_user_search_input(message: Message, state: FSMContext) -> None:
     try:
         target_uid = int(text)
     except ValueError:
-        await message.answer("❌ User ID harus angka. Coba lagi:")
+        await message.answer("User ID harus angka. Coba lagi:")
         return
 
     await clear_state(state)
     user = await db.get_user(target_uid)
     if not user:
         await message.answer(
-            f"❌ User <code>{target_uid}</code> tidak ditemukan di database.",
+            f"User <code>{target_uid}</code> tidak ditemukan.",
             reply_markup=admin_menu_keyboard(),
         )
         return
@@ -207,14 +207,14 @@ async def _build_user_detail(user: dict) -> str:
     tier_label = TIER_LABELS[tier]
 
     lines = [
-        f"👤 <b>User Detail</b>\n",
-        f"├ ID: <code>{uid}</code>",
-        f"├ Nama: <b>{html.escape(user['first_name'] or '-')}</b>",
-        f"├ Username: {uname}",
-        f"├ Pertama pakai: {first_seen}",
-        f"└ Terakhir aktif: {last_seen}\n",
-        f"💎 <b>Subscription:</b>",
-        f"├ Tier: {tier_label}",
+        f"<b>User Detail</b>\n",
+        f"ID: <code>{uid}</code>",
+        f"Nama: <b>{html.escape(user['first_name'] or '-')}</b>",
+        f"Username: {uname}",
+        f"First seen: {first_seen}",
+        f"Last seen: {last_seen}\n",
+        f"<b>Subscription</b>",
+        f"Tier: {tier_label}",
     ]
 
     if tier != Tier.FREE and sub.expires > 0:
@@ -223,18 +223,17 @@ async def _build_user_detail(user: dict) -> str:
             days = int(remaining // 86400)
             hours = int((remaining % 86400) // 3600)
             exp_dt = datetime.fromtimestamp(sub.expires)
-            lines.append(f"├ Exp: {exp_dt:%d/%m/%Y %H:%M}")
-            lines.append(f"└ Sisa: {days}h {hours}j")
+            lines.append(f"Exp: {exp_dt:%d/%m/%Y %H:%M}")
+            lines.append(f"Sisa: {days}h {hours}j")
         else:
-            lines.append("└ Status: <b>Expired</b>")
+            lines.append("Status: <b>Expired</b>")
     else:
-        lines.append("└ Status: Free (no active sub)")
+        lines.append("Status: Free")
 
     # Usage today
     usage = await db.get_usage(uid)
-    lines.append(f"\n📈 <b>Usage Hari Ini:</b>")
-    lines.append(f"├ Image: {usage['images']}")
-    lines.append(f"└ Video: {usage['videos']}")
+    lines.append(f"\n<b>Usage Hari Ini</b>")
+    lines.append(f"Image: {usage['images']} · Video: {usage['videos']}")
 
     return "\n".join(lines)
 
@@ -253,13 +252,13 @@ async def adm_subscribers(callback: CallbackQuery) -> None:
     if not subs:
         await safe_edit_text(
             callback.message,
-            "💎 <b>Subscriber Aktif</b>\n\nTidak ada subscriber aktif.",
+            "<b>Subscriber Aktif</b>\n\nTidak ada.",
             reply_markup=admin_menu_keyboard(),
         )
         await callback.answer()
         return
 
-    lines = [f"💎 <b>Subscriber Aktif</b> ({len(subs)} user)\n"]
+    lines = [f"<b>Subscriber Aktif</b> · {len(subs)}\n"]
     for s in subs:
         tier_label = TIER_LABELS.get(Tier(s["tier"]), s["tier"])
         exp = datetime.fromtimestamp(s["expires"]).strftime("%d/%m %H:%M") if s["expires"] else "∞"
@@ -343,11 +342,11 @@ async def adm_assign_duration(callback: CallbackQuery) -> None:
 
     exp_text = datetime.fromtimestamp(sub.expires).strftime("%d/%m/%Y %H:%M")
     text = (
-        f"✅ <b>Subscription Granted!</b>\n\n"
-        f"• User: <code>{uid}</code>\n"
-        f"• Tier: <b>{TIER_LABELS[tier]}</b>\n"
-        f"• Durasi: <b>{DURATION_LABELS[duration]}</b>\n"
-        f"• Exp: <b>{exp_text}</b>"
+        f"<b>Subscription Granted</b>\n\n"
+        f"User: <code>{uid}</code>\n"
+        f"Tier: <b>{TIER_LABELS[tier]}</b>\n"
+        f"Durasi: <b>{DURATION_LABELS[duration]}</b>\n"
+        f"Exp: <b>{exp_text}</b>"
     )
     await safe_edit_text(callback.message, text, reply_markup=admin_user_detail_keyboard(uid))
     await callback.answer()
@@ -370,9 +369,9 @@ async def adm_revoke_sub(callback: CallbackQuery) -> None:
 
     revoked = await subscription_manager.revoke(uid)
     if revoked:
-        await callback.answer("✅ Subscription di-revoke", show_alert=True)
+        await callback.answer("Subscription di-revoke", show_alert=True)
     else:
-        await callback.answer("ℹ️ User tidak punya subscription aktif", show_alert=True)
+        await callback.answer("Tidak ada subscription aktif", show_alert=True)
 
     # Refresh detail
     user = await db.get_user(uid)
@@ -401,7 +400,7 @@ async def adm_user_del_confirm(callback: CallbackQuery) -> None:
 
     await safe_edit_text(
         callback.message,
-        f"⚠️ Yakin hapus user <code>{uid}</code>?\n\nSemua data (subscription, usage, payment) akan dihapus permanen.",
+        f"Yakin hapus user <code>{uid}</code>?\n\nSemua data akan dihapus permanen.",
         reply_markup=admin_user_del_confirm_keyboard(uid),
     )
     await callback.answer()
@@ -421,7 +420,7 @@ async def adm_user_del_ok(callback: CallbackQuery) -> None:
     await db.delete_user(uid)
     await safe_edit_text(
         callback.message,
-        f"🗑 User <code>{uid}</code> berhasil dihapus.",
+        f"User <code>{uid}</code> dihapus.",
         reply_markup=admin_menu_keyboard(),
     )
     await callback.answer()
@@ -441,10 +440,10 @@ async def adm_broadcast_start(callback: CallbackQuery, state: FSMContext) -> Non
     await state.set_state(BroadcastFlow.waiting_message)
     await safe_edit_text(
         callback.message,
-        f"📢 <b>Broadcast</b>\n\n"
-        f"Pesan akan dikirim ke <b>{total}</b> user.\n"
-        f"Tulis pesan broadcast (mendukung HTML formatting):\n\n"
-        f"Kirim /cancel untuk membatalkan.",
+        f"<b>Broadcast</b>\n\n"
+        f"Target: <b>{total}</b> user.\n"
+        f"Tulis pesan (HTML supported):\n\n"
+        f"/cancel untuk batal.",
     )
     await callback.answer()
 
@@ -453,13 +452,13 @@ async def adm_broadcast_start(callback: CallbackQuery, state: FSMContext) -> Non
 async def adm_broadcast_preview(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if not text:
-        await message.answer("❌ Pesan tidak boleh kosong. Coba lagi:")
+        await message.answer("Pesan tidak boleh kosong. Coba lagi:")
         return
 
     await state.update_data(bc_text=text)
     total = await db.count_users()
     await message.answer(
-        f"📢 <b>Preview Broadcast</b>\n\n"
+        f"<b>Preview</b>\n\n"
         f"─────────────────\n"
         f"{text}\n"
         f"─────────────────\n\n"
@@ -482,7 +481,7 @@ async def adm_broadcast_send(callback: CallbackQuery, state: FSMContext, bot: Bo
         await callback.answer("Pesan kosong, batalkan", show_alert=True)
         return
 
-    await safe_edit_text(callback.message, "📢 Mengirim broadcast...")
+    await safe_edit_text(callback.message, "Mengirim broadcast…")
     await callback.answer()
 
     user_ids = await db.get_all_user_ids()
@@ -505,9 +504,9 @@ async def adm_broadcast_send(callback: CallbackQuery, state: FSMContext, bot: Bo
 
     await safe_edit_text(
         callback.message,
-        f"✅ <b>Broadcast Selesai</b>\n\n"
-        f"• Terkirim: <b>{success}</b>\n"
-        f"• Gagal: <b>{failed}</b>\n"
-        f"• Total: <b>{len(user_ids)}</b>",
+        f"<b>Broadcast Selesai</b>\n\n"
+        f"Terkirim: <b>{success}</b>\n"
+        f"Gagal: <b>{failed}</b>\n"
+        f"Total: <b>{len(user_ids)}</b>",
         reply_markup=admin_menu_keyboard(),
     )

@@ -43,17 +43,13 @@ async def show_referral_menu(callback: CallbackQuery) -> None:
     extra = await db.get_extra_quota(user_id)
 
     text = (
-        "🔗 <b>Referral Program</b>\n\n"
-        "Ajak teman pakai bot ini dan dapatkan <b>bonus kuota</b>!\n\n"
-        f"📎 <b>Link Referral Kamu:</b>\n"
-        f"<code>{ref_link}</code>\n\n"
-        f"👥 <b>Teman yang bergabung:</b> {ref_count}\n"
-        f"🎁 <b>Bonus diterima:</b> +{ref_count * REFERRAL_BONUS_IMAGES} images\n\n"
-        f"📦 <b>Extra Kuota Kamu:</b>\n"
-        f"├ Image: <b>{extra['images']}</b>\n"
-        f"└ Video: <b>{extra['videos']}</b>\n\n"
-        "💡 Setiap teman yang join lewat link kamu, "
-        f"kalian berdua dapat <b>+{REFERRAL_BONUS_IMAGES} image</b> gratis!"
+        "<b>🔗 Referral</b>\n"
+        "─────────────────\n\n"
+        f"Link:\n<code>{ref_link}</code>\n\n"
+        f"Teman bergabung: <b>{ref_count}</b>\n"
+        f"Bonus diterima: <b>+{ref_count * REFERRAL_BONUS_IMAGES}</b> img\n\n"
+        f"Extra: <b>{extra['images']}</b> img · <b>{extra['videos']}</b> vid\n\n"
+        f"<i>Tiap teman yang join, kalian berdua dapat +{REFERRAL_BONUS_IMAGES} image.</i>"
     )
 
     from ..keyboards import referral_keyboard
@@ -103,7 +99,7 @@ async def process_referral(referred_id: int, referrer_id: int) -> str | None:
     )
 
     return (
-        f"🎉 <b>Referral Bonus!</b>\n"
-        f"Kamu diundang oleh <b>{referrer_name}</b>.\n"
-        f"Kalian berdua mendapat <b>+{REFERRAL_BONUS_IMAGES} extra image</b>!"
+        f"<b>Referral Bonus!</b>\n"
+        f"Diundang oleh <b>{referrer_name}</b>.\n"
+        f"Kalian berdua dapat <b>+{REFERRAL_BONUS_IMAGES} extra image</b>."
     )

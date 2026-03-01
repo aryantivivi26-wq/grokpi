@@ -72,7 +72,7 @@ async def pay_choose_tier(callback: CallbackQuery, state: FSMContext) -> None:
     await clear_state(state)
     await safe_edit_text(
         callback.message,
-        "🛒 <b>Beli Subscription</b>\n\nPilih tier yang ingin dibeli:",
+        "<b>Beli Subscription</b>\n\nPilih tier:",
         reply_markup=pay_tier_keyboard(),
     )
     await callback.answer()
@@ -86,7 +86,7 @@ async def pay_choose_tier(callback: CallbackQuery, state: FSMContext) -> None:
 async def pay_choose_duration(callback: CallbackQuery) -> None:
     tier = callback.data.replace("pay:tier:", "", 1)  # "basic" or "premium"
     tier_label = TIER_LABELS.get(Tier(tier), tier)
-    text = f"🛒 <b>Beli {tier_label}</b>\n\nPilih durasi langganan:"
+    text = f"<b>Beli {tier_label}</b>\n\nPilih durasi:"
     await safe_edit_text(
         callback.message,
         text,
@@ -115,11 +115,11 @@ async def pay_confirm(callback: CallbackQuery) -> None:
     tier_label = TIER_LABELS.get(Tier(tier), tier)
     dur_label = DURATION_LABELS.get(Duration(duration), duration)
     text = (
-        f"🧾 <b>Konfirmasi Pembayaran</b>\n\n"
-        f"• Tier: <b>{tier_label}</b>\n"
-        f"• Durasi: <b>{dur_label}</b>\n"
-        f"• Harga: <b>{_format_rp(amount)}</b>\n\n"
-        f"Klik tombol di bawah untuk melanjutkan ke QRIS."
+        f"<b>Konfirmasi Pembayaran</b>\n\n"
+        f"Tier: <b>{tier_label}</b>\n"
+        f"Durasi: <b>{dur_label}</b>\n"
+        f"Harga: <b>{_format_rp(amount)}</b>\n\n"
+        f"Lanjutkan ke QRIS?"
     )
     await safe_edit_text(
         callback.message,
@@ -160,7 +160,7 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
     # Create order_id
     order_id = f"GROKPI-{user_id}-{uuid.uuid4().hex[:8].upper()}"
 
-    await safe_edit_text(callback.message, "⏳ Membuat QRIS, tunggu sebentar...")
+    await safe_edit_text(callback.message, "⏳ Membuat QRIS…")
     await callback.answer()
 
     try:
@@ -173,7 +173,7 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
         logger.error("[Payment] QRIS create failed: %s", e)
         await safe_edit_text(
             callback.message,
-            f"❌ Gagal membuat QRIS:\n<code>{html.escape(str(e)[:200])}</code>",
+            f"Gagal membuat QRIS:\n<code>{html.escape(str(e)[:200])}</code>",
             reply_markup=pay_back_keyboard(),
         )
         return
@@ -195,18 +195,14 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
     tier_label = TIER_LABELS.get(Tier(tier), tier)
     dur_label = DURATION_LABELS.get(Duration(duration), duration)
     caption = (
-        f"📱 <b>Scan QRIS untuk membayar</b>\n\n"
-        f"• Order: <code>{order_id}</code>\n"
-        f"• Tier: <b>{tier_label}</b>\n"
-        f"• Durasi: <b>{dur_label}</b>\n"
-        f"• Total: <b>{_format_rp(amount_total)}</b>\n"
+        f"<b>Scan QRIS</b>\n\n"
+        f"Order: <code>{order_id}</code>\n"
+        f"Tier: <b>{tier_label}</b> · {dur_label}\n"
+        f"Total: <b>{_format_rp(amount_total)}</b>\n"
     )
     if expires_at:
-        caption += f"• Expired: <b>{expires_at}</b>\n"
-    caption += (
-        f"\n⏳ Bot akan otomatis mengecek pembayaran.\n"
-        f"Atau klik tombol di bawah untuk cek manual."
-    )
+        caption += f"Expired: <b>{expires_at}</b>\n"
+    caption += "\nBot otomatis cek pembayaran."
 
     # Send QR image
     chat_id = callback.message.chat.id if callback.message else user_id
@@ -293,7 +289,7 @@ async def pay_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     user_id = callback.from_user.id if callback.from_user else 0
     kb = subscription_admin_keyboard() if is_admin(user_id) else subscription_menu_keyboard()
     await callback.message.answer(
-        "❌ Pembayaran dibatalkan.",
+        "Pembayaran dibatalkan.",
         reply_markup=kb,
     )
     await callback.answer()
@@ -317,14 +313,14 @@ async def pay_history(callback: CallbackQuery) -> None:
     if not payments:
         await safe_edit_text(
             callback.message,
-            "📜 <b>Riwayat Pembayaran</b>\n\nBelum ada transaksi.",
+            "<b>Riwayat Pembayaran</b>\n\nBelum ada transaksi.",
             reply_markup=pay_back_keyboard(),
         )
         await callback.answer()
         return
 
-    lines = ["📜 <b>Riwayat Pembayaran</b>\n"]
-    status_icons = {"paid": "✅", "pending": "⏳", "expired": "⏰"}
+    lines = ["<b>Riwayat Pembayaran</b>\n"]
+    status_icons = {"paid": "✓", "pending": "⏳", "expired": "⏰"}
     for p in payments:
         icon = status_icons.get(p["status"], "❓")
         tier_label = TIER_LABELS.get(Tier(p["tier"]), p["tier"]) if p["tier"] in [t.value for t in Tier] else p["tier"]
@@ -388,7 +384,7 @@ async def _poll_payment(
             try:
                 await bot.send_message(
                     chat_id=chat_id,
-                    text="⏰ QRIS sudah expired. Silakan buat transaksi baru.",
+                    text="⏰ QRIS expired. Buat transaksi baru.",
                     reply_markup=pay_back_keyboard(),
                 )
             except Exception:
@@ -401,7 +397,7 @@ async def _poll_payment(
     try:
         await bot.send_message(
             chat_id=chat_id,
-            text="⏰ Waktu pembayaran habis (15 menit). Silakan buat transaksi baru.",
+            text="⏰ Waktu pembayaran habis. Buat transaksi baru.",
             reply_markup=pay_back_keyboard(),
         )
     except Exception:
@@ -450,11 +446,11 @@ async def _grant_from_payment(
     tier_label = TIER_LABELS[tier_enum]
     dur_label = DURATION_LABELS[dur_enum]
     text = (
-        f"🎉 <b>Pembayaran Berhasil!</b>\n\n"
-        f"• Tier: <b>{tier_label}</b>\n"
-        f"• Durasi: <b>{dur_label}</b>\n"
-        f"• Aktif sampai: <b>{exp_text}</b>\n\n"
-        f"Terima kasih! Subscription kamu sudah aktif. 🚀"
+        f"<b>Pembayaran Berhasil!</b>\n\n"
+        f"Tier: <b>{tier_label}</b>\n"
+        f"Durasi: <b>{dur_label}</b>\n"
+        f"Aktif sampai: <b>{exp_text}</b>\n\n"
+        f"Subscription kamu sudah aktif."
     )
 
     try:

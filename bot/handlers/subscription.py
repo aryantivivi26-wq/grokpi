@@ -26,6 +26,7 @@ from ..subscription_manager import (
     subscription_manager,
 )
 from ..ui import clear_state, get_backend, safe_edit_text
+from .common import HOME_TEXT
 
 router = Router()
 
@@ -55,16 +56,16 @@ async def show_sub_info(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "subs:tiers")
 async def show_tier_comparison(callback: CallbackQuery) -> None:
-    lines = ["📊 <b>Perbandingan Tier</b>\n"]
+    lines = ["<b>Perbandingan Tier</b>\n"]
     for tier in Tier:
         lim = TIER_LIMITS[tier]
-        img_txt = "Unlimited ♾️" if lim.is_unlimited_images else f"{lim.images_per_day}/hari"
-        vid_txt = "Unlimited ♾️" if lim.is_unlimited_videos else f"{lim.videos_per_day}/hari"
-        lines.append(f"<b>{TIER_LABELS[tier]}</b>")
-        lines.append(f"  • Image: {img_txt}")
-        lines.append(f"  • Video: {vid_txt}")
-        lines.append(f"  • Max gambar/request: {lim.max_images_per_request}")
-        lines.append(f"  • Batch prompt: {lim.max_batch_prompts}")
+        img_txt = "∞" if lim.is_unlimited_images else f"{lim.images_per_day}/hari"
+        vid_txt = "∞" if lim.is_unlimited_videos else f"{lim.videos_per_day}/hari"
+        lines.append(
+            f"<b>{TIER_LABELS[tier]}</b>\n"
+            f"  Img {img_txt} · Vid {vid_txt}\n"
+            f"  Max {lim.max_images_per_request}/req · Batch {lim.max_batch_prompts}"
+        )
         lines.append("")
 
     user_id = callback.from_user.id if callback.from_user else 0
@@ -86,7 +87,7 @@ async def grant_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(subs_action="grant")
     await safe_edit_text(
         callback.message,
-        "🆔 Kirim <b>User ID</b> (angka) yang ingin diberi subscription:",
+        "Kirim <b>User ID</b> yang ingin diberi subscription:",
     )
     await callback.answer()
 
@@ -100,7 +101,7 @@ async def revoke_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(subs_action="revoke")
     await safe_edit_text(
         callback.message,
-        "🆔 Kirim <b>User ID</b> (angka) yang ingin di-revoke subscription-nya:",
+        "Kirim <b>User ID</b> yang ingin di-revoke:",
     )
     await callback.answer()
 
@@ -111,7 +112,7 @@ async def handle_user_id(message: Message, state: FSMContext) -> None:
     try:
         target_uid = int(text)
     except ValueError:
-        await message.answer("❌ User ID harus angka. Coba lagi:")
+        await message.answer("User ID harus angka. Coba lagi:")
         return
 
     data = await state.get_data()
@@ -121,10 +122,10 @@ async def handle_user_id(message: Message, state: FSMContext) -> None:
         revoked = await subscription_manager.revoke(target_uid)
         await clear_state(state)
         if revoked:
-            await message.answer(f"✅ Subscription user <b>{target_uid}</b> di-revoke (kembali Free).")
+            await message.answer(f"Subscription <b>{target_uid}</b> di-revoke.")
         else:
-            await message.answer(f"ℹ️ User <b>{target_uid}</b> tidak punya subscription aktif.")
-        await message.answer("🏠 <b>Main Menu</b>", reply_markup=main_menu_keyboard(await get_backend(state)))
+            await message.answer(f"User <b>{target_uid}</b> tidak punya subscription aktif.")
+        await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
         return
 
     # grant flow: choose tier
@@ -192,11 +193,11 @@ async def grant_choose_duration(callback: CallbackQuery, state: FSMContext) -> N
 
     exp_text = datetime.fromtimestamp(sub.expires).strftime("%Y-%m-%d %H:%M")
     text = (
-        f"✅ <b>Subscription Granted!</b>\n"
-        f"• User: <b>{target_uid}</b>\n"
-        f"• Tier: <b>{TIER_LABELS[tier]}</b>\n"
-        f"• Duration: <b>{DURATION_LABELS[duration]}</b>\n"
-        f"• Expires: <b>{exp_text}</b>"
+        f"<b>Subscription Granted</b>\n\n"
+        f"User: <b>{target_uid}</b>\n"
+        f"Tier: <b>{TIER_LABELS[tier]}</b>\n"
+        f"Durasi: <b>{DURATION_LABELS[duration]}</b>\n"
+        f"Expires: <b>{exp_text}</b>"
     )
     await clear_state(state)
     await safe_edit_text(callback.message, text, reply_markup=subscription_admin_keyboard())
@@ -217,13 +218,13 @@ async def list_active_subs(callback: CallbackQuery) -> None:
     if not subs:
         await safe_edit_text(
             callback.message,
-            "📃 <b>Active Subscriptions</b>\n\nTidak ada subscription aktif.",
+            "<b>Active Subscriptions</b>\n\nTidak ada subscription aktif.",
             reply_markup=subscription_admin_keyboard(),
         )
         await callback.answer()
         return
 
-    lines = ["📃 <b>Active Subscriptions</b>\n"]
+    lines = ["<b>Active Subscriptions</b>\n"]
     for s in subs:
         tier_label = TIER_LABELS.get(Tier(s["tier"]), s["tier"])
         exp = datetime.fromtimestamp(s["expires"]).strftime("%Y-%m-%d %H:%M") if s["expires"] else "∞"

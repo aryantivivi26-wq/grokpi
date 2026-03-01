@@ -52,9 +52,8 @@ async def open_gemini_menu(callback: CallbackQuery) -> None:
     kb = await _build_menu_keyboard()
     await safe_edit_text(
         callback.message,
-        "💎 <b>Gemini Server Manager</b>\n"
-        "Kelola server Gemini Business untuk image generation.\n"
-        "Tekan 🩺 Health Check untuk cek status server.",
+        "<b>✦ Gemini Manager</b>\n"
+        "<i>Kelola server Gemini Business.</i>",
         reply_markup=kb,
     )
     await callback.answer()
@@ -71,9 +70,9 @@ async def list_gemini_accounts(callback: CallbackQuery) -> None:
     kb = await _refresh_health_and_build_menu()
     summary = gemini_mgr.get_masked_summary()
     if not summary:
-        text = "💎 <b>Gemini Servers</b>\nBelum ada server."
+        text = "<b>✦ Gemini Servers</b>\nBelum ada server."
     else:
-        text = "💎 <b>Gemini Servers</b>\n\n" + "\n".join(summary)
+        text = "<b>✦ Gemini Servers</b>\n\n" + "\n".join(summary)
 
     await safe_edit_text(callback.message, text, reply_markup=kb)
     await callback.answer()
@@ -87,14 +86,14 @@ async def gemini_health_check(callback: CallbackQuery) -> None:
         await callback.answer("Akses ditolak", show_alert=True)
         return
 
-    await callback.answer("🩺 Checking health...", show_alert=False)
+    await callback.answer("Checking…", show_alert=False)
 
     try:
         health = await gateway_client.gemini_health()
         accounts = health.get("accounts", [])
         gemini_mgr.update_status(accounts)
 
-        lines = ["🩺 <b>Server Health Check</b>\n"]
+        lines = ["<b>Health Check</b>\n"]
         from ..gemini_manager import STATUS_ICONS
         for i, acc in enumerate(accounts):
             status = acc.get("status", "unknown")
@@ -106,7 +105,7 @@ async def gemini_health_check(callback: CallbackQuery) -> None:
             lines.append(line)
 
         if not accounts:
-            lines.append("Tidak ada server terdaftar di gateway.")
+            lines.append("Tidak ada server terdaftar.")
 
         kb = await _build_menu_keyboard()
         await safe_edit_text(callback.message, "\n".join(lines), reply_markup=kb)
@@ -114,7 +113,7 @@ async def gemini_health_check(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"❌ Health check gagal: {exc}",
+            f"Health check gagal: {exc}",
             reply_markup=kb,
         )
 
@@ -155,17 +154,16 @@ async def gemini_server_info(callback: CallbackQuery) -> None:
     else:
         masked_oses = oses[:3] + "***" if oses else "(kosong)"
 
-    email = acc.get("email", "")
-    email_line = f"📧 email: <code>{email}</code>" if email else "📧 email: <i>belum diset (auto-login disabled)</i>"
+    email_line = f"email: <code>{email}</code>" if email else "email: <i>belum diset</i>"
     expires = acc.get("expires_at", "")
-    expires_line = f"⏰ expires: <code>{expires}</code>" if expires else ""
+    expires_line = f"expires: <code>{expires}</code>" if expires else ""
 
     text = (
         f"{icon} <b>Server {idx + 1}</b> — {status}\n\n"
-        f"🔑 secure_c_ses: <code>{masked_ses}</code>\n"
-        f"🔑 host_c_oses: <code>{masked_oses}</code>\n"
-        f"📝 csesidx: <code>{acc.get('csesidx', '?')}</code>\n"
-        f"⚙️ config_id: <code>{acc.get('config_id', '?')}</code>\n"
+        f"secure_c_ses: <code>{masked_ses}</code>\n"
+        f"host_c_oses: <code>{masked_oses}</code>\n"
+        f"csesidx: <code>{acc.get('csesidx', '?')}</code>\n"
+        f"config_id: <code>{acc.get('config_id', '?')}</code>\n"
         f"{email_line}"
     )
     if expires_line:
@@ -175,11 +173,11 @@ async def gemini_server_info(callback: CallbackQuery) -> None:
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     rows = []
     if email:
-        rows.append([InlineKeyboardButton(text="🔄 Auto-Login Refresh", callback_data=f"gem:autologin:{idx}")])
+        rows.append([InlineKeyboardButton(text="↻ Auto-Login", callback_data=f"gem:autologin:{idx}")])
     else:
-        rows.append([InlineKeyboardButton(text="📧 Set Email (enable auto-login)", callback_data=f"gem:setemail:{idx}")])
-    rows.append([InlineKeyboardButton(text="🗑 Remove", callback_data=f"gem:rm:{idx}")])
-    rows.append([InlineKeyboardButton(text="⬅️ Back", callback_data="gem:list")])
+        rows.append([InlineKeyboardButton(text="Set Email", callback_data=f"gem:setemail:{idx}")])
+    rows.append([InlineKeyboardButton(text="✕ Remove", callback_data=f"gem:rm:{idx}")])
+    rows.append([InlineKeyboardButton(text="← Kembali", callback_data="gem:list")])
     info_kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
     await safe_edit_text(callback.message, text, reply_markup=info_kb)
@@ -205,7 +203,7 @@ async def gemini_remove_server(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"❌ {result['message']}",
+            result['message'],
             reply_markup=kb,
         )
         await callback.answer()
@@ -218,14 +216,14 @@ async def gemini_remove_server(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"✅ {result['message']}\n🔄 Reload: {payload}",
+            f"{result['message']}\nReload: {payload}",
             reply_markup=kb,
         )
     except Exception as exc:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"✅ {result['message']}\n⚠️ Reload gagal: {exc}",
+            f"{result['message']}\nReload gagal: {exc}",
             reply_markup=kb,
         )
     await callback.answer()
@@ -243,7 +241,7 @@ async def add_gemini_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(GeminiFlow.waiting_secure_c_ses)
     await safe_edit_text(
         callback.message,
-        "🔑 <b>Step 1/4</b>\n"
+        "<b>Step 1/4</b>\n"
         "Kirim value <b>__Secure-C_SES</b>:",
         reply_markup=gemini_input_keyboard(),
     )
@@ -256,8 +254,7 @@ async def add_gemini_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     kb = await _build_menu_keyboard()
     await safe_edit_text(
         callback.message,
-        "💎 <b>Gemini Server Manager</b>\n"
-        "Kelola server Gemini Business untuk image generation.",
+        "<b>✦ Gemini Manager</b>",
         reply_markup=kb,
     )
     await callback.answer("Dibatalkan")
@@ -272,13 +269,13 @@ async def add_gemini_step1(message: Message, state: FSMContext) -> None:
 
     value = (message.text or "").strip()
     if not value:
-        await message.answer("❌ secure_c_ses tidak boleh kosong. Kirim ulang atau cancel.")
+        await message.answer("Tidak boleh kosong. Kirim ulang atau cancel.")
         return
 
     await state.update_data(secure_c_ses=value)
     await state.set_state(GeminiFlow.waiting_host_c_oses)
     await message.answer(
-        "🔑 <b>Step 2/4</b>\n"
+        "<b>Step 2/4</b>\n"
         "Kirim value <b>__Host-C_OSES</b>:\n\n"
         "Tekan Skip jika tidak ada.",
         reply_markup=gemini_skip_keyboard(),
@@ -291,7 +288,7 @@ async def skip_host_c_oses(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(GeminiFlow.waiting_csesidx)
     await safe_edit_text(
         callback.message,
-        "🔑 <b>Step 3/4</b>\n"
+        "<b>Step 3/4</b>\n"
         "Kirim value <b>csesidx</b> (angka):",
         reply_markup=gemini_input_keyboard(),
     )
@@ -309,7 +306,7 @@ async def add_gemini_step2(message: Message, state: FSMContext) -> None:
     await state.update_data(host_c_oses=value)
     await state.set_state(GeminiFlow.waiting_csesidx)
     await message.answer(
-        "🔑 <b>Step 3/4</b>\n"
+        "<b>Step 3/4</b>\n"
         "Kirim value <b>csesidx</b> (angka):",
         reply_markup=gemini_input_keyboard(),
     )
@@ -326,8 +323,8 @@ async def add_gemini_step3(message: Message, state: FSMContext) -> None:
     await state.update_data(csesidx=csesidx)
     await state.set_state(GeminiFlow.waiting_config_id)
     await message.answer(
-        "🔑 <b>Step 4/4</b>\n"
-        "Kirim <b>config_id</b> (UUID dari Gemini Business workspace):\n\n"
+        "<b>Step 4/4</b>\n"
+        "Kirim <b>config_id</b> (UUID workspace):\n\n"
         "Tekan Skip untuk auto-generate.",
         reply_markup=gemini_skip_keyboard(),
     )
@@ -342,10 +339,9 @@ async def skip_config_id(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(GeminiFlow.waiting_email)
     await safe_edit_text(
         callback.message,
-        "📧 <b>Step 5/5 — Auto-Login Email</b>\n"
-        "Kirim <b>email</b> Google account ini untuk auto-refresh cookies.\n\n"
-        "⚠️ Email harus terdaftar di generator.email domain.\n"
-        "Tekan Skip jika tidak mau auto-refresh.",
+        "<b>Step 5/5 — Email</b>\n"
+        "Kirim <b>email</b> Google untuk auto-refresh cookies.\n\n"
+        "Skip jika tidak mau auto-refresh.",
         reply_markup=gemini_skip_keyboard(),
     )
     await callback.answer()
@@ -362,10 +358,9 @@ async def add_gemini_step4(message: Message, state: FSMContext) -> None:
     await state.update_data(config_id=config_id)
     await state.set_state(GeminiFlow.waiting_email)
     await message.answer(
-        "📧 <b>Step 5/5 — Auto-Login Email</b>\n"
-        "Kirim <b>email</b> Google account ini untuk auto-refresh cookies.\n\n"
-        "⚠️ Email harus terdaftar di generator.email domain.\n"
-        "Tekan Skip jika tidak mau auto-refresh.",
+        "<b>Step 5/5 — Email</b>\n"
+        "Kirim <b>email</b> Google untuk auto-refresh cookies.\n\n"
+        "Skip jika tidak mau auto-refresh.",
         reply_markup=gemini_skip_keyboard(),
     )
 
@@ -380,7 +375,7 @@ async def skip_email(callback: CallbackQuery, state: FSMContext) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            "💎 <b>Gemini Server Manager</b>",
+            "<b>✦ Gemini Manager</b>",
             reply_markup=kb,
         )
         await callback.answer("Dibatalkan")
@@ -417,11 +412,11 @@ async def handle_email_input(message: Message, state: FSMContext) -> None:
         result = gemini_mgr.update_account_email(set_email_index, email)
         kb = await _build_menu_keyboard()
         if result["status"] == "ok":
-            await message.answer(f"✅ {result['message']}")
+            await message.answer(f"{result['message']}")
         else:
-            await message.answer(f"❌ {result['message']}")
+            await message.answer(f"{result['message']}")
         await message.answer(
-            "💎 <b>Gemini Server Manager</b>",
+            "<b>✦ Gemini Manager</b>",
             reply_markup=kb,
         )
         return
@@ -443,17 +438,17 @@ async def _finish_add(target: Message, result: dict) -> None:
     kb = await _build_menu_keyboard()
 
     if result["status"] == "error":
-        await target.answer(f"❌ {result['message']}")
+        await target.answer(f"{result['message']}")
         await target.answer(
-            "💎 <b>Gemini Server Manager</b>",
+            "<b>✦ Gemini Manager</b>",
             reply_markup=kb,
         )
         return
 
     if result["status"] == "exists":
-        await target.answer(f"⚠️ {result['message']}")
+        await target.answer(f"Sudah ada: {result['message']}")
         await target.answer(
-            "💎 <b>Gemini Server Manager</b>",
+            "<b>✦ Gemini Manager</b>",
             reply_markup=kb,
         )
         return
@@ -465,22 +460,22 @@ async def _finish_add(target: Message, result: dict) -> None:
         before = result.get("before_count", 0)
         after = result.get("after_count", 0)
         await target.answer(
-            f"✅ {result['message']}\n"
+            f"{result['message']}\n"
             f"Total: {before} → {after}\n"
-            f"🔄 Gateway reload: {reload_result}"
+            f"Reload: {reload_result}"
         )
     except Exception as exc:
         before = result.get("before_count", 0)
         after = result.get("after_count", 0)
         await target.answer(
-            f"✅ {result['message']}\n"
+            f"{result['message']}\n"
             f"Total: {before} → {after}\n"
-            f"⚠️ Gateway reload gagal: {exc}"
+            f"Reload gagal: {exc}"
         )
 
     kb = await _build_menu_keyboard()
     await target.answer(
-        "💎 <b>Gemini Server Manager</b>",
+        "<b>✦ Gemini Manager</b>",
         reply_markup=kb,
     )
 
@@ -500,14 +495,14 @@ async def gemini_reload(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"✅ Reload Gemini selesai: {payload}",
+            f"Reload Gemini: {payload}",
             reply_markup=kb,
         )
     except Exception as exc:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"❌ Reload Gemini gagal: {exc}",
+            f"Reload gagal: {exc}",
             reply_markup=kb,
         )
     await callback.answer()
@@ -525,7 +520,7 @@ async def gemini_remove_last(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"❌ {result['message']}",
+            result['message'],
             reply_markup=kb,
         )
         await callback.answer()
@@ -537,14 +532,14 @@ async def gemini_remove_last(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"✅ {result['message']}\n🔄 Reload: {payload}",
+            f"{result['message']}\nReload: {payload}",
             reply_markup=kb,
         )
     except Exception as exc:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"✅ {result['message']}\n⚠️ Reload gagal: {exc}",
+            f"{result['message']}\nReload gagal: {exc}",
             reply_markup=kb,
         )
     await callback.answer()
@@ -573,18 +568,17 @@ async def gemini_autologin_trigger(callback: CallbackQuery) -> None:
 
     email = acc.get("email", "")
     if not email:
-        await callback.answer("Email belum diset! Set email dulu.", show_alert=True)
+        await callback.answer("Email belum diset", show_alert=True)
         return
 
-    await callback.answer("🔄 Starting auto-login... (bisa 1-3 menit)", show_alert=True)
+    await callback.answer("Auto-login dimulai…", show_alert=True)
 
     kb = await _build_menu_keyboard()
     await safe_edit_text(
         callback.message,
-        f"🔄 <b>Auto-Login Server {idx + 1}</b>\n\n"
-        f"📧 Email: {email}\n"
-        f"⏳ Sedang login via headless Chrome...\n"
-        f"Proses ini bisa memakan waktu 1-3 menit.",
+        f"<b>Auto-Login Server {idx + 1}</b>\n\n"
+        f"Email: {email}\n"
+        f"Login via headless Chrome… (1-3 menit)",
         reply_markup=kb,
     )
 
@@ -607,11 +601,10 @@ async def gemini_autologin_trigger(callback: CallbackQuery) -> None:
             kb = await _refresh_health_and_build_menu()
             await safe_edit_text(
                 callback.message,
-                f"✅ <b>Auto-Login Server {idx + 1} Berhasil!</b>\n\n"
-                f"📧 Email: {email}\n"
-                f"🔑 Cookies baru sudah di-update.\n"
-                f"⏰ Expires: {config.get('expires_at', '?')}\n"
-                f"🔄 Gateway reloaded.",
+                f"<b>Auto-Login Server {idx + 1} Berhasil</b>\n\n"
+                f"Email: {email}\n"
+                f"Expires: {config.get('expires_at', '?')}\n"
+                f"Gateway reloaded.",
                 reply_markup=kb,
             )
         else:
@@ -619,8 +612,8 @@ async def gemini_autologin_trigger(callback: CallbackQuery) -> None:
             kb = await _build_menu_keyboard()
             await safe_edit_text(
                 callback.message,
-                f"❌ <b>Auto-Login Server {idx + 1} Gagal</b>\n\n"
-                f"📧 Email: {email}\n"
+                f"<b>Auto-Login Server {idx + 1} Gagal</b>\n\n"
+                f"Email: {email}\n"
                 f"Error: {error[:200]}",
                 reply_markup=kb,
             )
@@ -628,7 +621,7 @@ async def gemini_autologin_trigger(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"❌ Auto-Login error: {exc}",
+            f"Auto-Login error: {exc}",
             reply_markup=kb,
         )
 
@@ -651,9 +644,8 @@ async def gemini_set_email_start(callback: CallbackQuery, state: FSMContext) -> 
     await state.update_data(set_email_index=idx)
     await safe_edit_text(
         callback.message,
-        f"📧 <b>Set Email untuk Server {idx + 1}</b>\n\n"
-        f"Kirim email Google account untuk auto-login.\n"
-        f"Email harus bisa menerima verification code di generator.email.",
+        f"<b>Set Email — Server {idx + 1}</b>\n\n"
+        f"Kirim email Google untuk auto-login.",
         reply_markup=gemini_input_keyboard(),
     )
     await callback.answer()
@@ -669,17 +661,14 @@ async def gemini_autoregister(callback: CallbackQuery) -> None:
         await callback.answer("Akses ditolak", show_alert=True)
         return
 
-    await callback.answer("🆕 Starting auto-register... (bisa 2-5 menit)", show_alert=True)
+    await callback.answer("Auto-register dimulai…", show_alert=True)
 
     kb = await _build_menu_keyboard()
     await safe_edit_text(
         callback.message,
-        "🆕 <b>Auto-Register Gemini Account</b>\n\n"
-        "⏳ Sedang membuat akun baru via headless Chrome...\n"
-        "• Generate random email di generator.email\n"
-        "• Login/register via Google\n"
-        "• Extract cookies\n\n"
-        "Proses ini bisa memakan waktu 2-5 menit.",
+        "<b>Auto-Register Gemini</b>\n\n"
+        "Membuat akun baru via headless Chrome…\n"
+        "Proses ini 2-5 menit.",
         reply_markup=kb,
     )
 
@@ -713,11 +702,11 @@ async def gemini_autoregister(callback: CallbackQuery) -> None:
             expires = config.get("expires_at", "?")
             await safe_edit_text(
                 callback.message,
-                f"✅ <b>Auto-Register Berhasil!</b>\n\n"
-                f"📧 Email: <code>{email_display}</code>\n"
-                f"⏰ Expires: {expires}\n"
-                f"📊 Total servers: {add_result.get('after_count', '?')}\n"
-                f"🔄 Gateway reloaded.",
+                f"<b>Auto-Register Berhasil</b>\n\n"
+                f"Email: <code>{email_display}</code>\n"
+                f"Expires: {expires}\n"
+                f"Total servers: {add_result.get('after_count', '?')}\n"
+                f"Gateway reloaded.",
                 reply_markup=kb,
             )
         else:
@@ -729,7 +718,7 @@ async def gemini_autoregister(callback: CallbackQuery) -> None:
             kb = await _build_menu_keyboard()
             await safe_edit_text(
                 callback.message,
-                f"❌ <b>Auto-Register Gagal</b>\n\n"
+                f"<b>Auto-Register Gagal</b>\n\n"
                 f"Error: {str(error)[:300]}",
                 reply_markup=kb,
             )
@@ -737,6 +726,6 @@ async def gemini_autoregister(callback: CallbackQuery) -> None:
         kb = await _build_menu_keyboard()
         await safe_edit_text(
             callback.message,
-            f"❌ Auto-Register error: {exc}",
+            f"Auto-Register error: {exc}",
             reply_markup=kb,
         )

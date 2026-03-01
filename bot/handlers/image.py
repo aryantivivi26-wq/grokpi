@@ -13,6 +13,7 @@ from ..states import ImageFlow
 from ..subscription_manager import subscription_manager
 from ..ui import clear_state, get_backend, safe_edit_text
 from ..user_limit_manager import user_limit_manager
+from .common import HOME_TEXT
 
 router = Router()
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -42,14 +43,11 @@ def _resolve_local_image_path(url: str) -> Path | None:
 def _image_settings_text(aspect: str, n: int, max_batch: int = 1) -> str:
     batch_line = ""
     if max_batch > 1:
-        batch_line = f"\n• Batch prompt: max <b>{max_batch}</b> prompt sekaligus"
+        batch_line = f" · Batch max <b>{max_batch}</b>"
     return (
-        "🖼 <b>Image Generator</b>\n"
-        f"• Aspect ratio: <b>{aspect}</b>\n"
-        f"• Jumlah gambar: <b>{n}</b>"
-        f"{batch_line}\n\n"
-        "Atur parameter, lalu klik <b>Enter Prompt</b>.\n"
-        "Atau gunakan <b>Batch Prompt</b> untuk kirim beberapa prompt sekaligus."
+        "<b>🖼 Image</b>\n"
+        f"Ratio <b>{aspect}</b> · Jumlah <b>{n}</b>{batch_line}\n\n"
+        "Atur parameter lalu tekan <b>Enter Prompt</b>."
     )
 
 
@@ -73,30 +71,25 @@ async def open_image_menu(callback: CallbackQuery, state: FSMContext) -> None:
         tier = await subscription_manager.get_tier(user_id)
         allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
         if not allowed_cd:
-            await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+            await callback.answer(f"Cooldown {remaining_cd}s", show_alert=True)
             return
         allowed, status = await user_limit_manager.can_consume(
             user_id, image_units=1, is_admin_user=admin_user,
         )
         if not allowed:
-            await callback.answer("Limit image harian tidak cukup", show_alert=True)
+            await callback.answer("Limit image habis", show_alert=True)
             await safe_edit_text(
                 callback.message,
-                (
-                    "❌ <b>Limit image harian tidak cukup</b>\n"
-                    f"Sisa image hari ini: <b>{status['images_remaining']}</b>\n"
-                    "Cek menu <b>My Limit</b> untuk detail."
-                ),
+                f"Limit image habis. Sisa: <b>{status['images_remaining']}</b>",
                 reply_markup=main_menu_keyboard(backend),
             )
             return
         await state.set_state(ImageFlow.waiting_prompt)
         await safe_edit_text(
             callback.message,
-            "🖼 <b>Gemini Image Generator</b>\n"
-            "• Format: <b>Sesuai prompt</b>\n"
-            "• Jumlah: <b>1 gambar</b>\n\n"
-            "✍️ Kirim prompt gambar sekarang.",
+            "<b>✦ Gemini Image</b>\n"
+            "Format otomatis · 1 gambar\n\n"
+            "Kirim prompt sekarang.",
         )
         await callback.answer()
         return
@@ -165,7 +158,7 @@ async def ask_image_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     tier = await subscription_manager.get_tier(user_id)
     allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
     if not allowed_cd:
-        await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+        await callback.answer(f"Cooldown {remaining_cd}s", show_alert=True)
         return
 
     _, n = await _ensure_image_defaults(state)
@@ -175,20 +168,16 @@ async def ask_image_prompt(callback: CallbackQuery, state: FSMContext) -> None:
         is_admin_user=admin_user,
     )
     if not allowed:
-        await callback.answer("Limit image harian tidak cukup", show_alert=True)
+        await callback.answer("Limit image habis", show_alert=True)
         await safe_edit_text(
             callback.message,
-            (
-                "❌ <b>Limit image harian tidak cukup</b>\n"
-                f"Sisa image hari ini: <b>{status['images_remaining']}</b>\n"
-                "Cek menu <b>My Limit</b> untuk detail."
-            ),
+            f"Limit image habis. Sisa: <b>{status['images_remaining']}</b>",
             reply_markup=main_menu_keyboard(await get_backend(state)),
         )
         return
 
     await state.set_state(ImageFlow.waiting_prompt)
-    await safe_edit_text(callback.message, "✍️ Kirim <b>1 prompt</b> gambar sekarang.")
+    await safe_edit_text(callback.message, "Kirim <b>1 prompt</b> gambar sekarang.")
     await callback.answer()
 
 
@@ -199,14 +188,14 @@ async def ask_batch_prompts(callback: CallbackQuery, state: FSMContext) -> None:
     tier_limits = await subscription_manager.get_limits(user_id)
 
     if tier_limits.max_batch_prompts <= 1:
-        await callback.answer("Upgrade tier untuk batch prompt!", show_alert=True)
+        await callback.answer("Upgrade tier untuk batch prompt", show_alert=True)
         return
 
     # Rate limit check
     tier = await subscription_manager.get_tier(user_id)
     allowed_cd, remaining_cd = check_cooldown(user_id, tier, is_admin=admin_user)
     if not allowed_cd:
-        await callback.answer(f"⏱ Cooldown! Tunggu {remaining_cd} detik lagi.", show_alert=True)
+        await callback.answer(f"Cooldown {remaining_cd}s", show_alert=True)
         return
 
     _, n = await _ensure_image_defaults(state)
@@ -217,18 +206,16 @@ async def ask_batch_prompts(callback: CallbackQuery, state: FSMContext) -> None:
         is_admin_user=admin_user,
     )
     if not allowed:
-        await callback.answer("Limit image harian tidak cukup", show_alert=True)
+        await callback.answer("Limit image habis", show_alert=True)
         return
 
     await state.set_state(ImageFlow.waiting_batch_prompts)
     await safe_edit_text(
         callback.message,
         (
-            f"📝 <b>Batch Prompt Mode</b>\n\n"
-            f"Kirim hingga <b>{tier_limits.max_batch_prompts}</b> prompt, "
-            f"satu prompt per baris.\n"
-            f"Setiap prompt akan generate <b>{n}</b> gambar.\n\n"
-            f"Contoh:\n"
+            f"<b>Batch Prompt</b>\n\n"
+            f"Max <b>{tier_limits.max_batch_prompts}</b> prompt, satu per baris.\n"
+            f"Tiap prompt → <b>{n}</b> gambar.\n\n"
             f"<code>kucing lucu di taman\n"
             f"sunset di pantai\n"
             f"robot futuristik</code>"
@@ -253,14 +240,14 @@ async def _generate_and_send(
 ) -> int:
     """Generate images for one prompt. Returns number of images actually sent."""
     label = f" [{prompt_label}]" if prompt_label else ""
-    wait_msg = await message.answer(f"⏳ Generating{label}...")
+    wait_msg = await message.answer(f"⏳ Generating{label}…")
 
     try:
         payload = await gateway_client.generate_image(prompt=prompt, n=n, aspect_ratio=aspect, model=model)
         data = payload.get("data", [])
         urls = [item.get("url", "") for item in data if item.get("url")]
         if not urls:
-            await wait_msg.edit_text(f"❌{label} Response kosong")
+            await wait_msg.edit_text(f"Gagal{label} — response kosong")
             return 0
 
         try:
@@ -292,7 +279,7 @@ async def _generate_and_send(
 
         return sent_count
     except Exception as exc:
-        await wait_msg.edit_text(f"❌{label} Generate gagal: {exc}")
+        await wait_msg.edit_text(f"Gagal{label}: {exc}")
         return 0
 
 
@@ -323,9 +310,9 @@ async def handle_image_prompt(message: Message, state: FSMContext) -> None:
     if not allowed:
         await clear_state(state)
         await message.answer(
-            f"❌ Limit image harian habis.\nSisa image hari ini: {status['images_remaining']}"
+            f"Limit image habis. Sisa: {status['images_remaining']}"
         )
-        await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
+        await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
         return
 
     model = BACKEND_IMAGE_MODEL.get(backend, "grok-2-image")
@@ -335,7 +322,7 @@ async def handle_image_prompt(message: Message, state: FSMContext) -> None:
         record_request(user_id)
 
     await clear_state(state)
-    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
+    await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
 
 
 @router.message(ImageFlow.waiting_batch_prompts)
@@ -359,7 +346,7 @@ async def handle_batch_prompts(message: Message, state: FSMContext) -> None:
     max_batch = tier_limits.max_batch_prompts
     if len(prompts) > max_batch:
         await message.answer(
-            f"⚠️ Max {max_batch} prompt. Kamu kirim {len(prompts)}, hanya {max_batch} pertama yang diproses."
+            f"Max {max_batch} prompt — hanya {max_batch} pertama diproses."
         )
         prompts = prompts[:max_batch]
 
@@ -373,16 +360,15 @@ async def handle_batch_prompts(message: Message, state: FSMContext) -> None:
         can_do = remaining // n if n > 0 else 0
         if can_do <= 0:
             await clear_state(state)
-            await message.answer(f"❌ Limit image habis. Sisa: {remaining}")
-            await message.answer("🏠 <b>Main Menu</b>", reply_markup=main_menu_keyboard(await get_backend(state)))
+            await message.answer(f"Limit image habis. Sisa: {remaining}")
+            await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
             return
         await message.answer(
-            f"⚠️ Limit tidak cukup untuk {len(prompts)} prompt. "
-            f"Hanya {can_do} prompt yang akan diproses (sisa limit: {remaining})."
+            f"Limit cukup untuk {can_do} prompt saja (sisa: {remaining})."
         )
         prompts = prompts[:can_do]
 
-    await message.answer(f"🚀 Memulai batch generate: <b>{len(prompts)}</b> prompt × <b>{n}</b> gambar...")
+    await message.answer(f"Batch generate: <b>{len(prompts)}</b> prompt × <b>{n}</b> gambar…")
 
     data = await state.get_data()
     backend = data.get("backend", "grok")
@@ -399,8 +385,8 @@ async def handle_batch_prompts(message: Message, state: FSMContext) -> None:
             await user_limit_manager.consume(user_id, image_units=sent, is_admin_user=admin_user)
             total_sent += sent
 
-    await message.answer(f"✅ Batch selesai! Total gambar: <b>{total_sent}</b>")
+    await message.answer(f"Batch selesai — <b>{total_sent}</b> gambar")
     if total_sent > 0:
         record_request(user_id)
     await clear_state(state)
-    await message.answer("🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:", reply_markup=main_menu_keyboard(await get_backend(state)))
+    await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))

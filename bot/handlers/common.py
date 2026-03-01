@@ -22,7 +22,7 @@ from ..user_limit_manager import user_limit_manager
 
 router = Router()
 
-HOME_TEXT = "🏠 <b>Main Menu</b>\nPilih fitur yang ingin digunakan:"
+HOME_TEXT = "<b>GrokPi</b> — Pilih menu di bawah."
 
 # Trial duration: 12 hours
 TRIAL_SECONDS = 12 * 3600
@@ -77,9 +77,9 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
             )
             await db.mark_trial_used(user_id)
             extra_messages.append(
-                "🎁 <b>Selamat Datang!</b>\n"
-                "Kamu mendapat <b>💎 Premium Trial 12 Jam</b> gratis!\n"
-                "Nikmati generate tanpa batas selama trial berlaku. 🚀"
+                "🎁 <b>Welcome!</b>\n"
+                "Kamu dapat <b>💎 Premium Trial 12 Jam</b> gratis.\n"
+                "Generate tanpa batas selama trial berlaku."
             )
 
     # Subscription info
@@ -97,13 +97,9 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
 
     # Build welcome text
     lines = [
-        f"Halo, <b>{name}</b>! 👋",
-        f"Selamat datang di <b>GrokPi Bot</b>",
-        f"{now.strftime('%A, %d %B %Y pukul %H.%M.%S')}\n",
-        f"📊 <b>User Info:</b>",
-        f"├ ID: <code>{user_id}</code>",
-        f"├ Username: {username}",
-        f"└ Tier: {tier_label}\n",
+        f"Halo, <b>{name}</b>!",
+        f"{now.strftime('%d %b %Y · %H:%M')}\n",
+        f"<code>{user_id}</code> · {username} · {tier_label}",
     ]
 
     # Subscription status
@@ -113,52 +109,36 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
             days = int(remaining // 86400)
             hours = int((remaining % 86400) // 3600)
             mins = int((remaining % 3600) // 60)
-            exp_dt = datetime.fromtimestamp(sub.expires)
-            lines.append("💎 <b>Langganan Aktif:</b>")
-            lines.append(f"├ Berlaku sampai: <b>{exp_dt:%d/%m/%Y %H:%M}</b>")
             if days > 0:
-                lines.append(f"└ Sisa waktu: <b>{days}h {hours}j {mins}m</b>\n")
+                lines.append(f"\n💎 Langganan · sisa <b>{days}h {hours}j {mins}m</b>")
             else:
-                lines.append(f"└ Sisa waktu: <b>{hours}j {mins}m</b>\n")
+                lines.append(f"\n💎 Langganan · sisa <b>{hours}j {mins}m</b>")
         else:
-            lines.append("💎 Langganan: <b>Expired</b>\n")
-    elif tier == Tier.FREE:
-        lines.append("💎 Langganan: <b>Belum berlangganan</b>\n")
+            lines.append("\n💎 Langganan · <b>Expired</b>")
 
     # Daily usage
     if admin_user:
-        lines.append("📈 <b>Pemakaian Hari Ini:</b>")
-        lines.append("└ <b>Unlimited (Admin)</b>\n")
+        lines.append("\n📊 Kuota hari ini · <b>Unlimited</b>")
     else:
         img_lim = limits.images_per_day
         vid_lim = limits.videos_per_day
         img_used = status["images_used"]
         vid_used = status["videos_used"]
-        img_txt = f"{img_used}/♾️" if img_lim >= UNLIMITED else f"{img_used}/{img_lim}"
-        vid_txt = f"{vid_used}/♾️" if vid_lim >= UNLIMITED else f"{vid_used}/{vid_lim}"
-        lines.append("📈 <b>Pemakaian Hari Ini:</b>")
-        lines.append(f"├ Image: <b>{img_txt}</b>")
-        lines.append(f"├ Video: <b>{vid_txt}</b>")
-        lines.append(f"└ Reset: <b>00:00 WIB</b>\n")
+        img_txt = f"{img_used}/∞" if img_lim >= UNLIMITED else f"{img_used}/{img_lim}"
+        vid_txt = f"{vid_used}/∞" if vid_lim >= UNLIMITED else f"{vid_used}/{vid_lim}"
+        lines.append(f"\n📊 Image <b>{img_txt}</b> · Video <b>{vid_txt}</b>")
 
-        # Extra quota info
         extra_img = status.get("extra_images", 0)
         extra_vid = status.get("extra_videos", 0)
         if extra_img > 0 or extra_vid > 0:
-            lines.append("📦 <b>Extra Kuota:</b>")
-            lines.append(f"├ Image: <b>{extra_img}</b>")
-            lines.append(f"└ Video: <b>{extra_vid}</b>\n")
+            lines.append(f"📦 Extra: <b>{extra_img}</b> img · <b>{extra_vid}</b> vid")
 
     # Bot statistics
-    lines.append("🤖 <b>Bot Stats:</b>")
-    lines.append(f"├ Total User: <b>{stats['total_users']}</b>")
-    lines.append(f"├ Subscriber Aktif: <b>{stats['active_subs']}</b>")
-    lines.append(f"└ Aktif Hari Ini: <b>{stats['active_today']}</b>\n")
-
-    lines.append("📌 <b>Shortcuts:</b>")
-    lines.append("├ /start — Buka menu utama")
-    lines.append("├ /help — Bantuan")
-    lines.append("└ /cancel — Batalkan proses aktif")
+    lines.append(
+        f"\n👥 <b>{stats['total_users']}</b> users · "
+        f"<b>{stats['active_subs']}</b> subs · "
+        f"<b>{stats['active_today']}</b> aktif"
+    )
 
     # Send extra messages first (referral bonus, trial)
     for extra_msg in extra_messages:
@@ -170,24 +150,23 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     text = (
-        "ℹ️ <b>Bantuan</b>\n\n"
-        "📌 <b>Commands:</b>\n"
-        "├ /start — Menu utama + statistik\n"
-        "├ /help — Halaman ini\n"
-        "├ /cancel — Batalkan proses aktif\n"
-        "├ /admin — Panel admin (khusus admin)\n"
-        "└ /gemini — Gemini server manager (admin)\n\n"
-        "🖼 <b>Image</b> — Generate gambar dari teks\n"
-        "🎬 <b>Video</b> — Generate video dari teks\n"
-        "💎 <b>Subscription</b> — Kelola & beli langganan\n"
-        "📈 <b>My Limit</b> — Cek sisa kuota harian\n"
-        "📦 <b>Topup Kuota</b> — Beli kuota tambahan\n"
-        "🏆 <b>Leaderboard</b> — Top generator bulan ini\n"
-        "🔗 <b>Referral</b> — Ajak teman, dapat bonus\n\n"
-        "💡 <b>Tips:</b>\n"
-        "• User baru dapat trial Premium 12 jam!\n"
-        "• Ajak teman via referral → bonus +10 image\n"
-        "• Kuota extra dari topup tidak expired"
+        "<b>Bantuan</b>\n"
+        "─────────────────\n\n"
+        "/start · Menu utama\n"
+        "/help · Bantuan\n"
+        "/cancel · Batalkan proses\n"
+        "/admin · Panel admin\n"
+        "/gemini · Gemini manager\n\n"
+        "🖼 Image · Generate gambar\n"
+        "🎬 Video · Generate video\n"
+        "💎 Langganan · Kelola subscription\n"
+        "📊 Kuota · Cek sisa limit\n"
+        "📦 Topup · Beli kuota tambahan\n"
+        "🏆 Ranking · Leaderboard bulanan\n"
+        "🔗 Referral · Ajak teman, dapat bonus\n\n"
+        "<i>User baru dapat trial Premium 12 jam.\n"
+        "Referral → bonus +10 image.\n"
+        "Kuota topup tidak expired.</i>"
     )
     await message.answer(text)
 
@@ -203,7 +182,7 @@ async def cmd_admin(message: Message) -> None:
         await message.answer("❌ Akses ditolak. Khusus admin.")
         return
     await message.answer(
-        "🛠 <b>Admin Panel</b>\nPilih aksi admin:",
+        "<b>Admin Panel</b>",
         reply_markup=admin_menu_keyboard(),
     )
 
@@ -221,9 +200,8 @@ async def cmd_gemini(message: Message) -> None:
     data = gemini_mgr.get_server_keyboard_data()
     kb = gemini_menu_keyboard(server_data=data if data else None)
     await message.answer(
-        "💎 <b>Gemini Server Manager</b>\n"
-        "Kelola server Gemini Business untuk image generation.\n"
-        "Tekan 🩺 Health Check untuk cek status server.",
+        "<b>✦ Gemini Manager</b>\n"
+        "<i>Kelola server Gemini Business.</i>",
         reply_markup=kb,
     )
 
@@ -235,7 +213,7 @@ async def cmd_sso(message: Message) -> None:
         await message.answer("❌ Akses ditolak. Khusus admin.")
         return
     await message.answer(
-        "🔐 <b>SSO Manager</b>",
+        "<b>🔑 SSO Manager</b>",
         reply_markup=sso_menu_keyboard(),
     )
 
@@ -243,7 +221,7 @@ async def cmd_sso(message: Message) -> None:
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
     await clear_state(state)
-    await message.answer("✅ Flow dibatalkan.")
+    await message.answer("Dibatalkan.")
     await message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
 
 
@@ -270,11 +248,10 @@ async def open_backend_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await safe_edit_text(
         callback.message,
         (
-            "🤖 <b>Pilih Model</b>\n\n"
-            "Pilih AI model yang ingin digunakan:\n\n"
-            "⚡ <b>Grok</b> — Image & Video generation (xAI)\n"
-            "💎 <b>Gemini</b> — Image & Video generation (Google)\n\n"
-            f"Aktif saat ini: <b>{current.title()}</b>"
+            "<b>Pilih Model</b>\n\n"
+            "⚡ <b>Grok</b> — xAI image &amp; video\n"
+            "✦ <b>Gemini</b> — Google image &amp; video\n\n"
+            f"Aktif: <b>{current.title()}</b>"
         ),
         reply_markup=backend_select_keyboard(current),
     )
@@ -297,7 +274,7 @@ async def set_backend(callback: CallbackQuery, state: FSMContext) -> None:
         HOME_TEXT,
         reply_markup=main_menu_keyboard(new_backend),
     )
-    await callback.answer(f"✅ Model diubah ke {new_backend.title()}")
+    await callback.answer(f"Model: {new_backend.title()}")
 
 
 @router.callback_query(F.data == "menu:limit")
@@ -313,22 +290,22 @@ async def show_my_limit(callback: CallbackQuery, state: FSMContext) -> None:
 
     if admin_user:
         text = (
-            "📈 <b>My Limit</b>\n"
+            "<b>📊 Kuota</b>\n\n"
             "Role: <b>Admin</b>\n"
-            "Status: <b>Unlimited</b>"
+            "Limit: <b>Unlimited</b>"
         )
     else:
         img_limit = status['images_limit']
         vid_limit = status['videos_limit']
-        img_txt = f"{status['images_used']}/♾️" if img_limit >= UNLIMITED else f"{status['images_used']}/{img_limit} (sisa {status['images_remaining']})"
-        vid_txt = f"{status['videos_used']}/♾️" if vid_limit >= UNLIMITED else f"{status['videos_used']}/{vid_limit} (sisa {status['videos_remaining']})"
+        img_txt = f"{status['images_used']}/∞" if img_limit >= UNLIMITED else f"{status['images_used']}/{img_limit}"
+        vid_txt = f"{status['videos_used']}/∞" if vid_limit >= UNLIMITED else f"{status['videos_used']}/{vid_limit}"
 
         text = (
-            "📈 <b>My Limit</b>\n\n"
-            f"• Tier: <b>{tier_label}</b>\n"
+            "<b>📊 Kuota</b>\n"
+            "─────────────────\n\n"
+            f"Tier: <b>{tier_label}</b>\n"
         )
 
-        # Show subscription remaining time
         if tier != Tier.FREE and sub.expires > 0:
             remaining = sub.expires - _time.time()
             if remaining > 0:
@@ -336,30 +313,23 @@ async def show_my_limit(callback: CallbackQuery, state: FSMContext) -> None:
                 hours = int((remaining % 86400) // 3600)
                 mins = int((remaining % 3600) // 60)
                 if days > 0:
-                    text += f"• Sisa langganan: <b>{days}h {hours}j {mins}m</b>\n"
+                    text += f"Sisa: <b>{days}h {hours}j {mins}m</b>\n"
                 else:
-                    text += f"• Sisa langganan: <b>{hours}j {mins}m</b>\n"
+                    text += f"Sisa: <b>{hours}j {mins}m</b>\n"
 
         text += (
-            f"\n📊 <b>Pemakaian Hari Ini:</b>\n"
-            f"• Image: <b>{img_txt}</b>\n"
-            f"• Video: <b>{vid_txt}</b>\n"
-            f"• Reset: <b>00:00 WIB</b>\n"
+            f"\nImage: <b>{img_txt}</b>\n"
+            f"Video: <b>{vid_txt}</b>\n"
+            f"Reset: 00:00 WIB\n"
         )
 
-        # Extra quota
         extra_img = status.get("extra_images", 0)
         extra_vid = status.get("extra_videos", 0)
         if extra_img > 0 or extra_vid > 0:
-            text += (
-                f"\n📦 <b>Extra Kuota:</b>\n"
-                f"• Image: <b>{extra_img}</b>\n"
-                f"• Video: <b>{extra_vid}</b>"
-            )
+            text += f"\nExtra: <b>{extra_img}</b> img · <b>{extra_vid}</b> vid"
 
-        # Cooldown info
         from ..rate_limiter import get_cooldown_text
-        text += f"\n\n⏱ Cooldown: <b>{get_cooldown_text(tier)}</b>"
+        text += f"\nCooldown: <b>{get_cooldown_text(tier)}</b>"
 
     await safe_edit_text(callback.message, text, reply_markup=main_menu_keyboard(await get_backend(state)))
     await callback.answer()
@@ -374,7 +344,7 @@ async def clean_chat(callback: CallbackQuery, state: FSMContext) -> None:
         except Exception:
             pass
         await callback.message.answer(HOME_TEXT, reply_markup=main_menu_keyboard(await get_backend(state)))
-    await callback.answer("Menu dibersihkan")
+    await callback.answer("Dibersihkan")
 
 
 @router.callback_query(F.data == "noop")
@@ -385,5 +355,5 @@ async def noop_callback(callback: CallbackQuery) -> None:
 @router.message(StateFilter(None))
 async def fallback_message(message: Message) -> None:
     await message.answer(
-        "Perintah tidak dikenali. Gunakan /start untuk membuka menu atau /help untuk bantuan."
+        "Perintah tidak dikenali. Ketik /start atau /help."
     )

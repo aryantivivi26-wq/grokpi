@@ -29,14 +29,14 @@ async def show_leaderboard(callback: CallbackQuery) -> None:
     if not top:
         await safe_edit_text(
             callback.message,
-            f"🏆 <b>Leaderboard — {month_label}</b>\n\nBelum ada data bulan ini.",
+            f"<b>🏆 Ranking — {month_label}</b>\n\nBelum ada data.",
             reply_markup=_lb_keyboard(),
         )
         await callback.answer()
         return
 
-    lines = [f"🏆 <b>Leaderboard — {month_label}</b>\n"]
-    lines.append("Top generator bulan ini:\n")
+    lines = [f"<b>🏆 Ranking — {month_label}</b>\n"]
+    lines.append("Top generator:\n")
 
     for i, entry in enumerate(top):
         medal = MEDALS[i] if i < len(MEDALS) else f"{i+1}."
@@ -44,10 +44,10 @@ async def show_leaderboard(callback: CallbackQuery) -> None:
         total_img = entry.get("total_images", 0)
         total_vid = entry.get("total_videos", 0)
         total = entry.get("total", 0)
-        is_me = " ← kamu" if entry["user_id"] == user_id else ""
+        is_me = " ◀" if entry["user_id"] == user_id else ""
         lines.append(
             f"{medal} <b>{name}</b>{is_me}\n"
-            f"     🖼 {total_img} img • 🎬 {total_vid} vid • Total: {total}"
+            f"     {total_img} img · {total_vid} vid · {total} total"
         )
 
     # Find user's own rank
@@ -58,15 +58,15 @@ async def show_leaderboard(callback: CallbackQuery) -> None:
             break
 
     if user_rank:
-        lines.append(f"\n📊 Kamu di peringkat <b>#{user_rank}</b>!")
+        lines.append(f"\nPeringkat kamu: <b>#{user_rank}</b>")
     else:
         # Get user's own usage
         usage = await db.get_usage(user_id)
         total_own = usage["images"] + usage["videos"]
         if total_own > 0:
-            lines.append(f"\n📊 Kamu belum masuk top 10. (Total hari ini: {total_own})")
+            lines.append(f"\nBelum masuk top 10. Total hari ini: {total_own}")
         else:
-            lines.append("\n📊 Mulai generate untuk masuk leaderboard!")
+            lines.append("\nGenerate untuk masuk ranking!")
 
     await safe_edit_text(
         callback.message,
@@ -79,6 +79,6 @@ async def show_leaderboard(callback: CallbackQuery) -> None:
 def _lb_keyboard():
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Refresh", callback_data="menu:leaderboard")],
-        [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")],
+        [InlineKeyboardButton(text="↻ Refresh", callback_data="menu:leaderboard")],
+        [InlineKeyboardButton(text="← Kembali", callback_data="menu:home")],
     ])

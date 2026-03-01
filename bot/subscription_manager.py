@@ -176,8 +176,8 @@ class SubscriptionManager:
         limits = TIER_LIMITS[tier]
 
         lines = [
-            "💎 <b>Subscription Info</b>",
-            f"• Tier: <b>{TIER_LABELS[tier]}</b>",
+            "<b>💎 Subscription</b>",
+            f"Tier: <b>{TIER_LABELS[tier]}</b>",
         ]
 
         if sub.expires > 0:
@@ -187,22 +187,18 @@ class SubscriptionManager:
             if remaining > 0:
                 days = int(remaining // 86400)
                 hours = int((remaining % 86400) // 3600)
-                lines.append(f"• Expires: <b>{exp_dt:%Y-%m-%d %H:%M}</b>")
-                lines.append(f"• Sisa: <b>{days}d {hours}h</b>")
+                lines.append(f"Expires: <b>{exp_dt:%Y-%m-%d %H:%M}</b>")
+                lines.append(f"Sisa: <b>{days}h {hours}j</b>")
             else:
-                lines.append("• Status: <b>Expired</b>")
+                lines.append("Status: <b>Expired</b>")
         else:
             if tier == Tier.FREE:
-                lines.append("• Status: <b>Aktif (default)</b>")
+                lines.append("Status: <b>Free (default)</b>")
 
-        lines.append("")
-        lines.append("<b>📊 Limit Harian:</b>")
-        img_txt = "Unlimited ♾️" if limits.is_unlimited_images else f"{limits.images_per_day}/hari"
-        vid_txt = "Unlimited ♾️" if limits.is_unlimited_videos else f"{limits.videos_per_day}/hari"
-        lines.append(f"• Image: <b>{img_txt}</b>")
-        lines.append(f"• Video: <b>{vid_txt}</b>")
-        lines.append(f"• Max gambar/request: <b>{limits.max_images_per_request}</b>")
-        lines.append(f"• Max batch prompt: <b>{limits.max_batch_prompts}</b>")
+        img_txt = "∞" if limits.is_unlimited_images else f"{limits.images_per_day}/hari"
+        vid_txt = "∞" if limits.is_unlimited_videos else f"{limits.videos_per_day}/hari"
+        lines.append(f"\nImg <b>{img_txt}</b> · Vid <b>{vid_txt}</b>")
+        lines.append(f"Max <b>{limits.max_images_per_request}</b>/req · Batch <b>{limits.max_batch_prompts}</b>")
 
         return "\n".join(lines)
 

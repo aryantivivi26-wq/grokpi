@@ -49,12 +49,13 @@ def _topup_menu_keyboard():
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     rows = []
     for pack_id, pack in TOPUP_PACKS.items():
+        icon = "🖼" if pack['images'] else "🎬"
         rows.append([InlineKeyboardButton(
-            text=f"{'🖼' if pack['images'] else '🎬'} {pack['label']} — {_format_rp(pack['price'])}",
+            text=f"{icon} {pack['label']} — {_format_rp(pack['price'])}",
             callback_data=f"topup:buy:{pack_id}",
         )])
-    rows.append([InlineKeyboardButton(text="📦 Cek Kuota Extra", callback_data="topup:balance")])
-    rows.append([InlineKeyboardButton(text="⬅️ Back", callback_data="menu:home")])
+    rows.append([InlineKeyboardButton(text="Cek Saldo Extra", callback_data="topup:balance")])
+    rows.append([InlineKeyboardButton(text="← Kembali", callback_data="menu:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -62,18 +63,18 @@ def _topup_confirm_keyboard(pack_id: str, price: int):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=f"✅ Bayar {_format_rp(price)}",
+            text=f"Bayar {_format_rp(price)}",
             callback_data=f"topup:confirm:{pack_id}",
         )],
-        [InlineKeyboardButton(text="❌ Batal", callback_data="menu:topup")],
+        [InlineKeyboardButton(text="✕ Batal", callback_data="menu:topup")],
     ])
 
 
 def _topup_waiting_keyboard(txn_id: str):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Cek Status", callback_data=f"topup:check:{txn_id}")],
-        [InlineKeyboardButton(text="❌ Batalkan", callback_data=f"topup:cancel:{txn_id}")],
+        [InlineKeyboardButton(text="↻ Cek Status", callback_data=f"topup:check:{txn_id}")],
+        [InlineKeyboardButton(text="✕ Batalkan", callback_data=f"topup:cancel:{txn_id}")],
     ])
 
 
@@ -85,13 +86,11 @@ def _topup_waiting_keyboard(txn_id: str):
 async def show_topup_menu(callback: CallbackQuery) -> None:
     extra = await db.get_extra_quota(callback.from_user.id)
     text = (
-        "📦 <b>Topup Kuota Extra</b>\n\n"
-        "Beli kuota tambahan yang <b>tidak expired</b> dan bisa digunakan "
-        "saat limit harian habis.\n\n"
-        f"📦 <b>Saldo Extra Kamu:</b>\n"
-        f"├ Image: <b>{extra['images']}</b>\n"
-        f"└ Video: <b>{extra['videos']}</b>\n\n"
-        "Pilih paket yang ingin dibeli:"
+        "<b>📦 Topup Kuota</b>\n"
+        "─────────────────\n\n"
+        "Kuota tambahan, <b>tidak expired</b>.\n\n"
+        f"Saldo: <b>{extra['images']}</b> img · <b>{extra['videos']}</b> vid\n\n"
+        "Pilih paket:"
     )
     await safe_edit_text(callback.message, text, reply_markup=_topup_menu_keyboard())
     await callback.answer()
@@ -123,10 +122,10 @@ async def topup_buy(callback: CallbackQuery) -> None:
         return
 
     text = (
-        f"🧾 <b>Konfirmasi Topup</b>\n\n"
-        f"• Paket: <b>{pack['label']}</b>\n"
-        f"• Harga: <b>{_format_rp(pack['price'])}</b>\n\n"
-        f"Kuota akan langsung ditambahkan ke saldo extra kamu."
+        f"<b>Konfirmasi Topup</b>\n\n"
+        f"Paket: <b>{pack['label']}</b>\n"
+        f"Harga: <b>{_format_rp(pack['price'])}</b>\n\n"
+        f"Langsung ditambahkan ke saldo extra."
     )
     await safe_edit_text(
         callback.message,
@@ -158,7 +157,7 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Masih ada pembayaran pending. Selesaikan dulu.", show_alert=True)
         return
 
-    await safe_edit_text(callback.message, "⏳ Membuat QRIS topup...")
+    await safe_edit_text(callback.message, "⏳ Membuat QRIS topup…")
     await callback.answer()
 
     try:
@@ -171,7 +170,7 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
         logger.error("[Topup] QRIS create failed: %s", e)
         await safe_edit_text(
             callback.message,
-            f"❌ Gagal membuat QRIS:\n<code>{html.escape(str(e)[:200])}</code>",
+            f"Gagal membuat QRIS:\n<code>{html.escape(str(e)[:200])}</code>",
             reply_markup=pay_back_keyboard(),
         )
         return
@@ -190,11 +189,11 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
     )
 
     caption = (
-        f"📱 <b>Scan QRIS untuk Topup</b>\n\n"
-        f"• Order: <code>{order_id}</code>\n"
-        f"• Paket: <b>{pack['label']}</b>\n"
-        f"• Total: <b>{_format_rp(amount_total)}</b>\n\n"
-        f"⏳ Bot akan otomatis cek pembayaran."
+        f"<b>Scan QRIS — Topup</b>\n\n"
+        f"Order: <code>{order_id}</code>\n"
+        f"Paket: <b>{pack['label']}</b>\n"
+        f"Total: <b>{_format_rp(amount_total)}</b>\n\n"
+        f"Bot otomatis cek pembayaran."
     )
 
     chat_id = callback.message.chat.id
@@ -245,7 +244,7 @@ async def topup_check(callback: CallbackQuery) -> None:
         await callback.answer(f"Error: {str(e)[:50]}", show_alert=True)
         return
 
-    icons = {"paid": "✅ Sudah dibayar!", "pending": "⏳ Belum dibayar", "expired": "⏰ Expired"}
+    icons = {"paid": "✓ Sudah dibayar", "pending": "⏳ Belum dibayar", "expired": "⏰ Expired"}
     await callback.answer(icons.get(status, f"Status: {status}"), show_alert=True)
 
 
@@ -257,7 +256,7 @@ async def topup_check(callback: CallbackQuery) -> None:
 async def topup_cancel(callback: CallbackQuery) -> None:
     txn_id = callback.data.replace("topup:cancel:", "", 1)
     await db.mark_payment_expired(txn_id)
-    await callback.message.answer("❌ Topup dibatalkan.", reply_markup=_topup_menu_keyboard())
+    await callback.message.answer("Topup dibatalkan.", reply_markup=_topup_menu_keyboard())
     await callback.answer()
     try:
         await callback.message.delete()
@@ -306,7 +305,7 @@ async def _poll_topup(
             await db.mark_payment_expired(transaction_id)
             await _delete_qr_message(bot, chat_id, qr_message_id)
             try:
-                await bot.send_message(chat_id, "⏰ QRIS topup expired. Buat transaksi baru.")
+                await bot.send_message(chat_id, "⏰ QRIS topup expired.")
             except Exception:
                 pass
             return
@@ -314,7 +313,7 @@ async def _poll_topup(
     await db.mark_payment_expired(transaction_id)
     await _delete_qr_message(bot, chat_id, qr_message_id)
     try:
-        await bot.send_message(chat_id, "⏰ Waktu pembayaran topup habis (15 menit).")
+        await bot.send_message(chat_id, "⏰ Waktu topup habis.")
     except Exception:
         pass
 
@@ -349,13 +348,10 @@ async def _grant_topup(
 
     extra = await db.get_extra_quota(user_id)
     text = (
-        f"🎉 <b>Topup Berhasil!</b>\n\n"
-        f"• Paket: <b>{pack['label']}</b>\n"
-        f"• Ditambahkan: <b>+{pack['images']} img, +{pack['videos']} vid</b>\n\n"
-        f"📦 <b>Saldo Extra Sekarang:</b>\n"
-        f"├ Image: <b>{extra['images']}</b>\n"
-        f"└ Video: <b>{extra['videos']}</b>\n\n"
-        f"Kuota ini tidak expired dan bisa dipakai kapan saja! 🚀"
+        f"<b>Topup Berhasil!</b>\n\n"
+        f"Paket: <b>{pack['label']}</b>\n"
+        f"Ditambahkan: <b>+{pack['images']} img, +{pack['videos']} vid</b>\n\n"
+        f"Saldo Extra: <b>{extra['images']}</b> img · <b>{extra['videos']}</b> vid"
     )
 
     try:

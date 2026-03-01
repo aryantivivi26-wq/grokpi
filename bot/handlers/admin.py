@@ -14,20 +14,20 @@ PAGE_SIZE = 5
 
 
 def _format_status(payload: dict) -> str:
-    lines = ["📊 <b>Gateway Status</b>"]
-    lines.append(f"• service: <b>{payload.get('service', 'unknown')}</b>")
+    lines = ["<b>Gateway Status</b>"]
+    lines.append(f"Service: <b>{payload.get('service', 'unknown')}</b>")
 
     config = payload.get("config") or {}
     if isinstance(config, dict):
         for key in ["host", "port", "images_dir", "videos_dir", "rotation_strategy", "daily_limit"]:
             if key in config:
-                lines.append(f"• {key}: <b>{config.get(key)}</b>")
+                lines.append(f"{key}: <b>{config.get(key)}</b>")
 
     sso = payload.get("sso")
     if isinstance(sso, dict):
-        lines.append("\n🔐 <b>SSO</b>")
+        lines.append("\n<b>SSO</b>")
         for key, value in sso.items():
-            lines.append(f"• {key}: <b>{value}</b>")
+            lines.append(f"{key}: <b>{value}</b>")
 
     return "\n".join(lines)
 
@@ -47,7 +47,7 @@ async def _show_image_list(callback: CallbackQuery, state: FSMContext, start: in
         return
 
     end = min(start + PAGE_SIZE, len(images))
-    lines = [f"🖼 <b>Image Cache (latest)</b>\nMenampilkan {start + 1}-{end} dari {len(images)}"]
+    lines = [f"🖼 <b>Image Cache</b> · {start + 1}-{end}/{len(images)}"]
     for idx, item in enumerate(images[start:end], start=start + 1):
         lines.append(f"{idx}. {item.get('filename')}\n{item.get('url')}")
 
@@ -68,7 +68,7 @@ async def _show_video_list(callback: CallbackQuery, state: FSMContext, start: in
         return
 
     end = min(start + PAGE_SIZE, len(videos))
-    lines = [f"🎬 <b>Video Cache (latest)</b>\nMenampilkan {start + 1}-{end} dari {len(videos)}"]
+    lines = [f"🎬 <b>Video Cache</b> · {start + 1}-{end}/{len(videos)}"]
     for idx, item in enumerate(videos[start:end], start=start + 1):
         lines.append(f"{idx}. {item.get('filename')}\n{item.get('url')}")
 
@@ -86,7 +86,7 @@ async def open_admin_menu(callback: CallbackQuery) -> None:
         return
 
     await callback.message.edit_text(
-        "🛠 <b>Admin Panel</b>\nPilih aksi admin:",
+        "<b>Admin Panel</b>",
         reply_markup=admin_menu_keyboard(),
     )
     await callback.answer()
@@ -102,7 +102,7 @@ async def admin_status(callback: CallbackQuery) -> None:
         payload = await gateway_client.admin_status()
         text = _format_status(payload)
     except Exception as exc:
-        text = f"❌ Gagal ambil status: {exc}"
+        text = f"Gagal ambil status: {exc}"
 
     await safe_edit_text(callback.message, text, reply_markup=admin_menu_keyboard())
     await callback.answer()
@@ -116,9 +116,9 @@ async def admin_reload_sso(callback: CallbackQuery) -> None:
 
     try:
         payload = await gateway_client.reload_sso()
-        await safe_edit_text(callback.message, f"✅ Reload SSO: {payload}", reply_markup=admin_menu_keyboard())
+        await safe_edit_text(callback.message, f"Reload SSO: {payload}", reply_markup=admin_menu_keyboard())
     except Exception as exc:
-        await safe_edit_text(callback.message, f"❌ Reload SSO gagal: {exc}", reply_markup=admin_menu_keyboard())
+        await safe_edit_text(callback.message, f"Reload SSO gagal: {exc}", reply_markup=admin_menu_keyboard())
 
     await callback.answer()
 
@@ -148,7 +148,7 @@ async def admin_images(callback: CallbackQuery, state: FSMContext) -> None:
     try:
         await _show_image_list(callback, state)
     except Exception as exc:
-        await safe_edit_text(callback.message, f"❌ Gagal load image cache: {exc}", reply_markup=admin_menu_keyboard())
+        await safe_edit_text(callback.message, f"Gagal load image cache: {exc}", reply_markup=admin_menu_keyboard())
     await callback.answer()
 
 
@@ -161,7 +161,7 @@ async def admin_videos(callback: CallbackQuery, state: FSMContext) -> None:
     try:
         await _show_video_list(callback, state)
     except Exception as exc:
-        await safe_edit_text(callback.message, f"❌ Gagal load video cache: {exc}", reply_markup=admin_menu_keyboard())
+        await safe_edit_text(callback.message, f"Gagal load video cache: {exc}", reply_markup=admin_menu_keyboard())
     await callback.answer()
 
 
@@ -189,7 +189,7 @@ async def admin_media_page(callback: CallbackQuery, state: FSMContext) -> None:
         else:
             await _show_video_list(callback, state, start=start)
     except Exception as exc:
-        await safe_edit_text(callback.message, f"❌ Gagal buka halaman media: {exc}", reply_markup=admin_menu_keyboard())
+        await safe_edit_text(callback.message, f"Gagal buka halaman: {exc}", reply_markup=admin_menu_keyboard())
 
     await callback.answer()
 
@@ -223,7 +223,7 @@ async def admin_delete_confirm(callback: CallbackQuery, state: FSMContext) -> No
     back_start = (idx // PAGE_SIZE) * PAGE_SIZE
     await safe_edit_text(
         callback.message,
-        f"⚠️ Konfirmasi hapus {media_type[:-1]}:\n<b>{filename}</b>",
+        f"Konfirmasi hapus {media_type[:-1]}:\n<b>{filename}</b>",
         reply_markup=delete_confirm_keyboard(media_type, idx, back_start),
     )
     await callback.answer()
@@ -270,6 +270,6 @@ async def admin_delete_media(callback: CallbackQuery, state: FSMContext) -> None
             await gateway_client.delete_video(encoded)
             await _show_video_list(callback, state, start=back_start)
     except Exception as exc:
-        await safe_edit_text(callback.message, f"❌ Gagal hapus media: {exc}", reply_markup=admin_menu_keyboard())
+        await safe_edit_text(callback.message, f"Gagal hapus media: {exc}", reply_markup=admin_menu_keyboard())
 
     await callback.answer()
