@@ -1,7 +1,8 @@
 """Local Gemini Account Manager — manages GEMINI_ACCOUNTS_CONFIG JSON file on disk.
 
 Accounts are stored as a JSON array in a file so they persist across restarts
-(when backed by a Docker volume).
+(when backed by a Docker volume). Each account also tracks an `_status` field
+for the bot UI (active / dead / unknown).
 """
 
 import json
@@ -10,11 +11,29 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+# Status constants
+STATUS_ACTIVE = "active"
+STATUS_DEAD = "dead"
+STATUS_UNKNOWN = "unknown"
+STATUS_DISABLED = "disabled"
+STATUS_EXPIRED = "expired"
+
+STATUS_ICONS = {
+    STATUS_ACTIVE: "🟢",
+    STATUS_DEAD: "🔴",
+    STATUS_UNKNOWN: "⚪",
+    STATUS_DISABLED: "⏸",
+    STATUS_EXPIRED: "⏰",
+}
+
+
 class LocalGeminiManager:
     """Manages Gemini Business accounts stored in a JSON file."""
 
     def __init__(self, file_path: Path):
         self.file_path = file_path
+        # In-memory status cache (not persisted to disk — refreshed via health check)
+        self._status: Dict[int, str] = {}  # index -> status
 
     def _ensure_file(self) -> None:
         if not self.file_path.exists():
@@ -62,6 +81,9 @@ class LocalGeminiManager:
         accounts.append(new_account)
         self.file_path.write_text(json.dumps(accounts), encoding="utf-8")
 
+        # Default new account status
+        self._status[before_count] = STATUS_UNKNOWN
+
         return {
             "status": "ok",
             "message": "Gemini account ditambahkan",
@@ -69,13 +91,23 @@ class LocalGeminiManager:
             "after_count": before_count + 1,
         }
 
-    def remove_last_account(self) -> Dict[str, str]:
+    def remove_account(self, index: int) -> Dict[str, str]:
+        """Remove account by index (0-based). Returns status dict."""
         accounts = self.list_accounts()
         if not accounts:
             return {"status": "error", "message": "Tidak ada account untuk dihapus"}
+        if index < 0 or index >= len(accounts):
+            return {"status": "error", "message": f"Index {index + 1} tidak valid (total: {len(accounts)})"}
 
-        removed = accounts.pop()
+        removed = accounts.pop(index)
         self.file_path.write_text(json.dumps(accounts), encoding="utf-8")
+
+        # Re-index status cache
+        new_status = {}
+        for i in range(len(accounts)):
+            old_i = i if i < index else i + 1
+            new_status[i] = self._status.get(old_i, STATUS_UNKNOWN)
+        self._status = new_status
 
         preview = removed.get("secure_c_ses", "")
         if len(preview) > 12:
@@ -83,12 +115,27 @@ class LocalGeminiManager:
         else:
             preview = preview[:3] + "***"
 
-        return {"status": "ok", "message": f"Account terakhir dihapus ({preview})"}
+        return {"status": "ok", "message": f"Server {index + 1} dihapus ({preview})"}
+
+    def remove_last_account(self) -> Dict[str, str]:
+        accounts = self.list_accounts()
+        if not accounts:
+            return {"status": "error", "message": "Tidak ada account untuk dihapus"}
+        return self.remove_account(len(accounts) - 1)
+
+    def update_status(self, health_results: List[dict]) -> None:
+        """Update status cache from gateway health check results."""
+        self._status.clear()
+        for i, result in enumerate(health_results):
+            self._status[i] = result.get("status", STATUS_UNKNOWN)
+
+    def get_status(self, index: int) -> str:
+        return self._status.get(index, STATUS_UNKNOWN)
 
     def get_masked_summary(self) -> List[str]:
         accounts = self.list_accounts()
         result = []
-        for idx, acc in enumerate(accounts, start=1):
+        for idx, acc in enumerate(accounts):
             ses = acc.get("secure_c_ses", "???")
             if len(ses) > 12:
                 masked = ses[:6] + "..." + ses[-4:]
@@ -97,8 +144,26 @@ class LocalGeminiManager:
             csesidx = acc.get("csesidx", "?")
             cfg = acc.get("config_id", "?")
             cfg_short = cfg[:8] + "…" if len(cfg) > 8 else cfg
-            result.append(f"{idx}. {masked} (idx: {csesidx}, cfg: {cfg_short})")
+            status = self._status.get(idx, STATUS_UNKNOWN)
+            icon = STATUS_ICONS.get(status, "❓")
+            result.append(f"{icon} Server {idx + 1}: {masked} (idx: {csesidx}, cfg: {cfg_short})")
         return result
+
+    def get_server_keyboard_data(self) -> List[Dict[str, Any]]:
+        """Return data for building server keyboard buttons."""
+        accounts = self.list_accounts()
+        data = []
+        for idx, acc in enumerate(accounts):
+            status = self._status.get(idx, STATUS_UNKNOWN)
+            icon = STATUS_ICONS.get(status, "❓")
+            if status == STATUS_DEAD:
+                label = f"{icon} Server {idx + 1} (MT)"
+            elif status == STATUS_ACTIVE:
+                label = f"{icon} Server {idx + 1}"
+            else:
+                label = f"{icon} Server {idx + 1}"
+            data.append({"index": idx, "label": label, "status": status})
+        return data
 
     def get_config_json(self) -> str:
         """Return the JSON string for GEMINI_ACCOUNTS_CONFIG."""

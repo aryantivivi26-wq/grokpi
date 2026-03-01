@@ -240,17 +240,31 @@ def sso_add_input_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def gemini_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Add Gemini Account", callback_data="gem:add")],
-            [InlineKeyboardButton(text="📋 List Accounts", callback_data="gem:list")],
-            [InlineKeyboardButton(text="➖ Remove Last Account", callback_data="gem:remove_last")],
-            [InlineKeyboardButton(text="🔄 Reload to Gateway", callback_data="gem:reload")],
-            [InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")],
-            [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:admin")],
-        ]
-    )
+def gemini_menu_keyboard(server_data: list | None = None) -> InlineKeyboardMarkup:
+    """Gemini manager menu. If server_data is provided, show per-server buttons."""
+    rows = []
+
+    if server_data:
+        for srv in server_data:
+            idx = srv["index"]
+            label = srv["label"]
+            rows.append([
+                InlineKeyboardButton(text=label, callback_data=f"gem:info:{idx}"),
+                InlineKeyboardButton(text="🗑", callback_data=f"gem:rm:{idx}"),
+            ])
+    else:
+        rows.append([InlineKeyboardButton(text="📋 List / Status", callback_data="gem:list")])
+
+    rows.extend([
+        [InlineKeyboardButton(text="➕ Add Server", callback_data="gem:add")],
+        [
+            InlineKeyboardButton(text="🔄 Reload Gateway", callback_data="gem:reload"),
+            InlineKeyboardButton(text="🩺 Health Check", callback_data="gem:health"),
+        ],
+        [InlineKeyboardButton(text="🧹 Clean", callback_data="menu:clean")],
+        [InlineKeyboardButton(text="⬅️ Back", callback_data="menu:admin")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def gemini_input_keyboard() -> InlineKeyboardMarkup:

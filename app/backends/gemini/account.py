@@ -34,6 +34,7 @@ class AccountConfig:
     config_id: str
     expires_at: Optional[str] = None
     disabled: bool = False
+    _last_cookie_refresh: float = 0.0
 
     def get_remaining_hours(self) -> Optional[float]:
         if not self.expires_at:

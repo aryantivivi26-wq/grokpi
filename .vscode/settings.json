@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd /workspaces/grokpi && git add -A && git status --short$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

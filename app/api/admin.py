@@ -226,3 +226,48 @@ async def reload_gemini(body: GeminiReloadRequest = GeminiReloadRequest()):
     except Exception as e:
         logger.error(f"[Admin] Gemini reload failed: {e}")
         raise HTTPException(status_code=500, detail=f"Gemini reload failed: {e}")
+
+
+@router.get("/gemini/health")
+async def gemini_health():
+    """Health check for all Gemini accounts. Tests JWT auth for each."""
+    from app.backends.router import backend_router
+
+    gemini = backend_router.get_backend_by_name("gemini")
+    if gemini is None:
+        raise HTTPException(status_code=404, detail="Gemini backend not registered")
+
+    mgr = gemini._multi_account_mgr
+    if not mgr:
+        return {"accounts": []}
+
+    results = []
+    for acc_id, account in mgr.accounts.items():
+        entry = {
+            "id": acc_id,
+            "status": "unknown",
+            "disabled": account.config.disabled,
+            "expired": account.config.is_expired(),
+        }
+
+        if account.config.disabled:
+            entry["status"] = "disabled"
+            results.append(entry)
+            continue
+
+        if account.config.is_expired():
+            entry["status"] = "expired"
+            results.append(entry)
+            continue
+
+        # Try getting JWT to test if cookies are still valid
+        try:
+            await account.get_jwt(request_id="health")
+            entry["status"] = "active"
+        except Exception as e:
+            entry["status"] = "dead"
+            entry["error"] = str(e)[:100]
+
+        results.append(entry)
+
+    return {"accounts": results}

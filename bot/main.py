@@ -10,6 +10,7 @@ from .config import settings
 from .handlers import get_routers
 from . import database as db
 from .cleanup_scheduler import midnight_cleaner
+from .gemini_health_scheduler import gemini_health_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,14 @@ async def main() -> None:
     # --- Start midnight cleanup scheduler ---
     midnight_cleaner.start(bot=bot, admin_ids=settings.admin_ids)
 
+    # --- Start Gemini health check scheduler ---
+    from .handlers.gemini import gemini_mgr
+    gemini_health_scheduler.start(bot=bot, admin_ids=settings.admin_ids, gemini_mgr=gemini_mgr)
+
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        gemini_health_scheduler.stop()
         midnight_cleaner.stop()
         await db.close_db()
         logger.info("[Bot] Shutdown complete")

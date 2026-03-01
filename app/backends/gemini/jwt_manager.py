@@ -74,7 +74,10 @@ class JWTManager:
             return self.jwt
 
     async def _refresh(self, request_id: str = "") -> None:
-        """Refresh the JWT token from Google auth endpoint."""
+        """Refresh the JWT token from Google auth endpoint.
+
+        Also captures any Set-Cookie headers to auto-refresh session cookies.
+        """
         cookie = f"__Secure-C_SES={self.config.secure_c_ses}"
         if self.config.host_c_oses:
             cookie += f"; __Host-C_OSES={self.config.host_c_oses}"
@@ -97,9 +100,41 @@ class JWTManager:
                 response=r,
             )
 
+        # Auto-refresh: capture rotated cookies from Set-Cookie headers
+        self._capture_set_cookies(r, request_id)
+
         txt = r.text[4:] if r.text.startswith(")]}'") else r.text
         data = json.loads(txt)
 
         key_bytes = base64.urlsafe_b64decode(data["xsrfToken"] + "==")
         self.jwt = create_jwt(key_bytes, data["keyId"], self.config.csesidx)
         self.expires = time.time() + 270
+
+    def _capture_set_cookies(self, response, request_id: str = "") -> None:
+        """Extract any rotated cookies from the response and update config."""
+        set_cookie_headers = response.headers.multi_items()
+        updated = False
+        for name, value in set_cookie_headers:
+            if name.lower() != "set-cookie":
+                continue
+            cookie_str = value.split(";")[0]  # "name=value"
+            if "=" not in cookie_str:
+                continue
+            cname, cval = cookie_str.split("=", 1)
+            cname = cname.strip()
+            cval = cval.strip()
+            if cname == "__Secure-C_SES" and cval and cval != self.config.secure_c_ses:
+                old_prefix = self.config.secure_c_ses[:20]
+                self.config.secure_c_ses = cval
+                updated = True
+                logger.info(
+                    f"[AUTH] [{self.config.account_id}] Cookie __Secure-C_SES auto-refreshed "
+                    f"(was {old_prefix}...)"
+                )
+            elif cname == "__Host-C_OSES" and cval and cval != (self.config.host_c_oses or ""):
+                self.config.host_c_oses = cval
+                updated = True
+                logger.info(f"[AUTH] [{self.config.account_id}] Cookie __Host-C_OSES auto-refreshed")
+        if updated:
+            # Mark last refresh time  
+            self.config._last_cookie_refresh = time.time()

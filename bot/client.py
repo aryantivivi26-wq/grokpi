@@ -87,6 +87,9 @@ class GatewayClient:
             payload["accounts_config"] = accounts_json
         return await self._post("/admin/gemini/reload", payload)
 
+    async def gemini_health(self) -> Dict[str, Any]:
+        return await self._get("/admin/gemini/health")
+
     async def list_images(self, limit: int = 12) -> Dict[str, Any]:
         return await self._get(f"/admin/images/list?limit={limit}")
 
