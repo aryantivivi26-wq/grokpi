@@ -1,1 +1,1 @@
-"""Telegram bot package for GrokPi admin and generation workflow."""
+"""Telegram bot package for Hubify Studio admin and generation workflow."""

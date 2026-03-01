@@ -44,7 +44,7 @@ async def show_referral_menu(callback: CallbackQuery) -> None:
 
     text = (
         "<b>🔗 Referral</b>\n"
-        "<i>Ajak teman pakai GrokPi, kalian berdua dapat bonus</i>\n"
+        "<i>Ajak teman pakai Hubify Studio, kalian berdua dapat bonus</i>\n"
         "─────────────────\n\n"
         f"Link undangan kamu:\n<code>{ref_link}</code>\n\n"
         "Kirim link ini ke teman. Saat mereka bergabung,\n"

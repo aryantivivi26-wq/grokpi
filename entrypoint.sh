@@ -24,7 +24,7 @@ touch "$SSO_FILE"
 SSO_COUNT=$(grep -c . "$SSO_FILE" 2>/dev/null || echo 0)
 echo "[entrypoint] SSO file: $SSO_FILE ($SSO_COUNT keys)"
 
-echo "[entrypoint] Starting GrokPi Gateway + Bot..."
+echo "[entrypoint] Starting Hubify Studio Gateway + Bot..."
 
 # Start gateway in background
 python main.py &

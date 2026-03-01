@@ -1,4 +1,4 @@
-# GrokPi — Multi-Backend AI Image/Video API Gateway + Telegram Bot
+# Hubify Studio — Multi-Backend AI Image/Video API Gateway + Telegram Bot
 
 Gateway API kompatibel OpenAI untuk **generate gambar dan video** menggunakan **Grok (xAI)** dan **Gemini Business (Google)**, dilengkapi **Telegram Bot** dengan fitur subscription, payment QRIS, referral, leaderboard, dan **auto-management Gemini accounts** (auto-login, auto-register, health monitoring).
 
@@ -113,7 +113,7 @@ Cara paling cepat untuk deploy, baik di VPS maupun lokal.
 
 ```bash
 git clone https://github.com/imnoob59/grokpi.git
-cd grokpi
+cd hubify-studio
 cp .env.example .env
 nano .env   # Isi semua variabel yang diperlukan
 ```
@@ -201,7 +201,7 @@ curl https://your-coolify-domain/health
 Di Coolify, tambahkan domain di tab **Domains** untuk akses HTTPS otomatis (Traefik/Caddy). Domain ini juga bisa dipakai untuk webhook QRIS:
 
 ```
-https://grokpi.yourdomain.com/webhook/qris
+https://hubify-studio.yourdomain.com/webhook/qris
 ```
 
 ---
@@ -241,7 +241,7 @@ sudo usermod -aG docker $USER
 ```bash
 cd ~
 git clone https://github.com/imnoob59/grokpi.git
-cd grokpi
+cd hubify-studio
 ```
 
 ### Step 4: Setup Python Virtual Environment
@@ -385,20 +385,20 @@ QRIS_POLL_TIMEOUT=900
 **Service Gateway:**
 
 ```bash
-sudo tee /etc/systemd/system/grokpi-gateway.service << EOF
+sudo tee /etc/systemd/system/hubify-gateway.service << EOF
 [Unit]
-Description=GrokPi API Gateway
+Description=Hubify Studio API Gateway
 After=network.target docker.service
 Wants=docker.service
 
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME/grokpi
-ExecStart=$HOME/grokpi/.venv/bin/python main.py
+WorkingDirectory=$HOME/hubify-studio
+ExecStart=$HOME/hubify-studio/.venv/bin/python main.py
 Restart=always
 RestartSec=5
-Environment=PATH=$HOME/grokpi/.venv/bin:/usr/local/bin:/usr/bin
+Environment=PATH=$HOME/hubify-studio/.venv/bin:/usr/local/bin:/usr/bin
 
 [Install]
 WantedBy=multi-user.target
@@ -408,20 +408,20 @@ EOF
 **Service Bot:**
 
 ```bash
-sudo tee /etc/systemd/system/grokpi-bot.service << EOF
+sudo tee /etc/systemd/system/hubify-bot.service << EOF
 [Unit]
-Description=GrokPi Telegram Bot
-After=grokpi-gateway.service
-Wants=grokpi-gateway.service
+Description=Hubify Studio Telegram Bot
+After=hubify-gateway.service
+Wants=hubify-gateway.service
 
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME/grokpi
-ExecStart=$HOME/grokpi/.venv/bin/python -m bot.main
+WorkingDirectory=$HOME/hubify-studio
+ExecStart=$HOME/hubify-studio/.venv/bin/python -m bot.main
 Restart=always
 RestartSec=5
-Environment=PATH=$HOME/grokpi/.venv/bin:/usr/local/bin:/usr/bin
+Environment=PATH=$HOME/hubify-studio/.venv/bin:/usr/local/bin:/usr/bin
 
 [Install]
 WantedBy=multi-user.target
@@ -432,16 +432,16 @@ EOF
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now grokpi-gateway grokpi-bot
+sudo systemctl enable --now hubify-gateway hubify-bot
 ```
 
 **Cek status:**
 
 ```bash
-sudo systemctl status grokpi-gateway
-sudo systemctl status grokpi-bot
-sudo journalctl -u grokpi-gateway -f   # live log gateway
-sudo journalctl -u grokpi-bot -f       # live log bot
+sudo systemctl status hubify-gateway
+sudo systemctl status hubify-bot
+sudo journalctl -u hubify-gateway -f   # live log gateway
+sudo journalctl -u hubify-bot -f       # live log bot
 ```
 
 ### Step 11: Verifikasi
@@ -573,7 +573,7 @@ POST https://api.yourdomain.com/webhook/qris
 ```json
 {
   "amount": 5000,
-  "order_id": "GROKPI-123456-ABCD1234",
+  "order_id": "HUBIFY-123456-ABCD1234",
   "customer_id": "123456",
   "status": "completed",
   "payment_method": "qris",
@@ -637,7 +637,7 @@ sudo apt install -y nginx certbot python3-certbot-nginx
 ### Konfigurasi Nginx
 
 ```bash
-sudo tee /etc/nginx/sites-available/grokpi << 'EOF'
+sudo tee /etc/nginx/sites-available/hubify-studio << 'EOF'
 server {
     server_name api.yourdomain.com;
 
@@ -655,7 +655,7 @@ server {
 }
 EOF
 
-sudo ln -sf /etc/nginx/sites-available/grokpi /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/hubify-studio /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -792,22 +792,22 @@ Scheduler berjalan setiap 6 jam:
 ### Update
 
 ```bash
-cd ~/grokpi
+cd ~/hubify-studio
 git pull origin main
 source .venv/bin/activate
 pip install -r requirements.txt
-sudo systemctl restart grokpi-gateway grokpi-bot
+sudo systemctl restart hubify-gateway hubify-bot
 ```
 
 ### Log
 
 ```bash
 # Live log
-sudo journalctl -u grokpi-gateway -f
-sudo journalctl -u grokpi-bot -f
+sudo journalctl -u hubify-gateway -f
+sudo journalctl -u hubify-bot -f
 
 # Log hari ini
-sudo journalctl -u grokpi-bot --since today
+sudo journalctl -u hubify-bot --since today
 ```
 
 ---
@@ -819,7 +819,7 @@ sudo journalctl -u grokpi-bot --since today
 | Video gagal 403 Cloudflare | Pastikan FlareSolverr jalan: `docker ps` & `curl localhost:8191` |
 | Gemini 401/403 | Cookie expired — gunakan `/gemini` → Auto-Login atau Auto-Register |
 | Gemini image lama (~2 menit) | Normal, Google image generation memang lambat |
-| Bot tidak respond | Cek token: `docker compose logs -f grokpi` |
+| Bot tidak respond | Cek token: `docker compose logs -f hubify-studio` |
 | Model tidak berubah di bot | Klik 🤖 Model di menu, pilih Gemini/Grok |
 | QRIS webhook tidak masuk | Pastikan port terbuka atau gunakan reverse proxy + domain |
 | Database corrupt | Backup lalu hapus: `cp bot.db bot.db.bak && rm bot.db` lalu restart |
@@ -834,7 +834,7 @@ sudo journalctl -u grokpi-bot --since today
 ## Struktur Project
 
 ```
-grokpi/
+hubify-studio/
 ├── Dockerfile               # Docker image build (includes Chromium)
 ├── docker-compose.yml       # Docker Compose (Gateway + FlareSolverr)
 ├── entrypoint.sh            # Container entrypoint (gateway + bot)

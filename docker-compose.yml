@@ -1,7 +1,7 @@
 services:
-  grokpi:
+  hubify-studio:
     build: .
-    container_name: grokpi
+    container_name: hubify-studio
     restart: unless-stopped
     ports:
       - "${PORT:-9563}:${PORT:-9563}"
@@ -10,8 +10,8 @@ services:
       - GATEWAY_BASE_URL=http://127.0.0.1:${PORT:-9563}
       - FLARESOLVERR_URL=http://flaresolverr:8191
     volumes:
-      - grokpi-data:/app/data
-      - grokpi-db:/app/db
+      - hubify-data:/app/data
+      - hubify-db:/app/db
       # - ./key.txt:/app/key.txt:ro  # Uncomment jika pakai file lokal
     depends_on:
       flaresolverr:
@@ -33,5 +33,5 @@ services:
     #   - "8191:8191"
 
 volumes:
-  grokpi-data:
-  grokpi-db:
+  hubify-data:
+  hubify-db:

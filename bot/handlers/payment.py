@@ -160,7 +160,7 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
         return
 
     # Create order_id
-    order_id = f"GROKPI-{user_id}-{uuid.uuid4().hex[:8].upper()}"
+    order_id = f"HUBIFY-{user_id}-{uuid.uuid4().hex[:8].upper()}"
 
     await safe_edit_text(callback.message, "⏳ Membuat QRIS…")
     await callback.answer()

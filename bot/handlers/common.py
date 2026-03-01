@@ -23,7 +23,7 @@ from ..user_limit_manager import user_limit_manager
 router = Router()
 
 HOME_TEXT = (
-    "<b>GrokPi</b> — Bot pembuat gambar &amp; video AI.\n"
+    "<b>Hubify Studio</b> — Bot pembuat gambar &amp; video AI.\n"
     "Pilih menu di bawah untuk mulai."
 )
 
@@ -106,7 +106,7 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
     backend_label = {"grok": "⚡ Grok", "gemini": "✦ Gemini"}.get(backend, backend)
 
     lines = [
-        f"Halo, <b>{name}</b>! Selamat datang di <b>GrokPi</b>.",
+        f"Halo, <b>{name}</b>! Selamat datang di <b>Hubify Studio</b>.",
         f"Bot ini bisa membuat <b>gambar</b> dan <b>video</b> dari teks menggunakan AI.\n",
         f"<code>{user_id}</code> · {username} · {tier_label}",
         f"Model aktif: <b>{backend_label}</b>",
@@ -161,7 +161,7 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     text = (
-        "<b>Bantuan — Cara Pakai GrokPi</b>\n"
+        "<b>Bantuan — Cara Pakai Hubify Studio</b>\n"
         "─────────────────\n\n"
         "<b>Cara mulai:</b>\n"
         "1. Tekan /start untuk buka menu\n"
