@@ -198,24 +198,27 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
     )
 
     chat_id = callback.message.chat.id
+    qr_message_id = None
     try:
         if not qris_content:
             raise ValueError("qris_content kosong dari API")
         image_bytes = generate_qr_png(qris_content)
         photo = BufferedInputFile(image_bytes, filename="qris_topup.png")
-        await bot.send_photo(
+        sent = await bot.send_photo(
             chat_id=chat_id,
             photo=photo,
             caption=caption,
             reply_markup=_topup_waiting_keyboard(txn_id),
         )
+        qr_message_id = sent.message_id
     except Exception as e:
         logger.warning("[Topup] QR image failed: %s", e)
-        await bot.send_message(
+        sent = await bot.send_message(
             chat_id=chat_id,
             text=caption,
             reply_markup=_topup_waiting_keyboard(txn_id),
         )
+        qr_message_id = sent.message_id
 
     try:
         await callback.message.delete()
@@ -224,7 +227,7 @@ async def topup_create_qris(callback: CallbackQuery, bot: Bot) -> None:
 
     # Start background polling
     asyncio.create_task(
-        _poll_topup(bot, chat_id, user_id, txn_id, pack_id)
+        _poll_topup(bot, chat_id, user_id, txn_id, pack_id, qr_message_id)
     )
 
 
@@ -272,6 +275,7 @@ async def _poll_topup(
     user_id: int,
     transaction_id: str,
     pack_id: str,
+    qr_message_id: int | None = None,
 ) -> None:
     interval = settings.QRIS_POLL_INTERVAL
     timeout = settings.QRIS_POLL_TIMEOUT
@@ -294,11 +298,13 @@ async def _poll_topup(
             continue
 
         if status == "paid":
+            await _delete_qr_message(bot, chat_id, qr_message_id)
             await _grant_topup(bot, chat_id, user_id, transaction_id, pack_id)
             return
 
         if status == "expired":
             await db.mark_payment_expired(transaction_id)
+            await _delete_qr_message(bot, chat_id, qr_message_id)
             try:
                 await bot.send_message(chat_id, "⏰ QRIS topup expired. Buat transaksi baru.")
             except Exception:
@@ -306,8 +312,19 @@ async def _poll_topup(
             return
 
     await db.mark_payment_expired(transaction_id)
+    await _delete_qr_message(bot, chat_id, qr_message_id)
     try:
         await bot.send_message(chat_id, "⏰ Waktu pembayaran topup habis (15 menit).")
+    except Exception:
+        pass
+
+
+async def _delete_qr_message(bot: Bot, chat_id: int, message_id: int | None) -> None:
+    """Delete the QR image message silently."""
+    if not message_id:
+        return
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception:
         pass
 

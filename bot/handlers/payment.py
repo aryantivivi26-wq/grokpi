@@ -210,25 +210,28 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
 
     # Send QR image
     chat_id = callback.message.chat.id if callback.message else user_id
+    qr_message_id = None
     try:
         if not qris_content:
             raise ValueError("qris_content kosong dari API")
         image_bytes = generate_qr_png(qris_content)
         photo = BufferedInputFile(image_bytes, filename="qris.png")
-        await bot.send_photo(
+        sent = await bot.send_photo(
             chat_id=chat_id,
             photo=photo,
             caption=caption,
             reply_markup=pay_waiting_keyboard(txn_id),
         )
+        qr_message_id = sent.message_id
     except Exception as e:
         logger.warning("[Payment] Failed to send QR image: %s", e)
         # Fallback: send text-only
-        await bot.send_message(
+        sent = await bot.send_message(
             chat_id=chat_id,
             text=caption + f"\n\n(QR image gagal dikirim: {html.escape(str(e)[:100])})",
             reply_markup=pay_waiting_keyboard(txn_id),
         )
+        qr_message_id = sent.message_id
 
     # Delete the "creating QRIS" message
     try:
@@ -247,6 +250,7 @@ async def pay_create_qris(callback: CallbackQuery, state: FSMContext, bot: Bot) 
             transaction_id=txn_id,
             tier=tier,
             duration=duration,
+            qr_message_id=qr_message_id,
         )
     )
 
@@ -348,6 +352,7 @@ async def _poll_payment(
     transaction_id: str,
     tier: str,
     duration: str,
+    qr_message_id: int | None = None,
 ) -> None:
     """Poll QRIS check-status until paid, expired, or timeout."""
     interval = settings.QRIS_POLL_INTERVAL
@@ -373,12 +378,13 @@ async def _poll_payment(
             continue
 
         if status == "paid":
-            # Grant subscription
+            await _delete_qr_message(bot, chat_id, qr_message_id)
             await _grant_from_payment(bot, chat_id, user_id, transaction_id, tier, duration)
             return
 
         if status == "expired":
             await db.mark_payment_expired(transaction_id)
+            await _delete_qr_message(bot, chat_id, qr_message_id)
             try:
                 await bot.send_message(
                     chat_id=chat_id,
@@ -391,12 +397,23 @@ async def _poll_payment(
 
     # Timeout — mark expired
     await db.mark_payment_expired(transaction_id)
+    await _delete_qr_message(bot, chat_id, qr_message_id)
     try:
         await bot.send_message(
             chat_id=chat_id,
             text="⏰ Waktu pembayaran habis (15 menit). Silakan buat transaksi baru.",
             reply_markup=pay_back_keyboard(),
         )
+    except Exception:
+        pass
+
+
+async def _delete_qr_message(bot: Bot, chat_id: int, message_id: int | None) -> None:
+    """Delete the QR image message silently."""
+    if not message_id:
+        return
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception:
         pass
 
