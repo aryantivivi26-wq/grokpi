@@ -28,7 +28,7 @@ COPY . .
 RUN mkdir -p /app/data/images /app/data/videos
 
 # Volumes for persistent data
-VOLUME ["/app/data", "/app/bot.db"]
+VOLUME ["/app/data", "/app/db"]
 
 EXPOSE 9563
 

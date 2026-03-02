@@ -32,6 +32,16 @@ class BotSettings(BaseSettings):
     QRIS_POLL_INTERVAL: int = 10     # seconds between status checks
     QRIS_POLL_TIMEOUT: int = 900     # 15 minutes max polling
 
+    # --- MongoDB ---
+    MONGODB_URI: str = Field(
+        default="mongodb://mongo:27017",
+        validation_alias=AliasChoices("MONGODB_URI", "MONGO_URI", "MONGO_URL"),
+    )
+    MONGODB_DB_NAME: str = Field(
+        default="grokpi",
+        validation_alias=AliasChoices("MONGODB_DB_NAME", "MONGO_DB_NAME", "MONGO_DB"),
+    )
+
     SSO_FILE: Path = ROOT_DIR / "key.txt"
     LIMITS_STATE_FILE: Path = ROOT_DIR / "db" / "user_limits_state.json"
 

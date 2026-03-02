@@ -21,9 +21,16 @@ async def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
 
-    # --- Initialize SQLite database ---
+    # --- Initialize MongoDB database ---
     await db.get_db()
-    logger.info("[Bot] SQLite database initialized at %s", db.DB_PATH)
+    logger.info("[Bot] MongoDB database initialized (%s)", settings.MONGODB_DB_NAME)
+
+    # --- Migrate from old SQLite database if it exists ---
+    old_sqlite = Path(settings.LIMITS_STATE_FILE).parent / "bot.db"
+    if old_sqlite.exists():
+        logger.info("[Bot] Found old SQLite database, migrating to MongoDB...")
+        stats = await db.migrate_from_sqlite(old_sqlite)
+        logger.info("[Bot] SQLite → MongoDB migration: %s", stats)
 
     # --- Migrate old JSON files if they exist ---
     subs_json = Path(settings.LIMITS_STATE_FILE).parent / "subscriptions.json"
