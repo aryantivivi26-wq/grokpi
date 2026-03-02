@@ -9,7 +9,7 @@ services:
     environment:
       - GATEWAY_BASE_URL=http://127.0.0.1:${PORT:-9563}
       - FLARESOLVERR_URL=http://flaresolverr:8191
-      - MONGODB_URI=mongodb://mongo:27017
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017}
       - MONGODB_DB_NAME=${MONGODB_DB_NAME:-grokpi}
     volumes:
       - hubify-data:/app/data
@@ -42,13 +42,12 @@ services:
     restart: unless-stopped
     volumes:
       - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASS:-}
     # Uncomment to expose MongoDB externally (for remote VPS sharing)
     # ports:
     #   - "27017:27017"
-    # Uncomment and set credentials for production
-    # environment:
-    #   - MONGO_INITDB_ROOT_USERNAME=grokpi
-    #   - MONGO_INITDB_ROOT_PASSWORD=changeme
 
 volumes:
   hubify-data:
