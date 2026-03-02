@@ -88,6 +88,27 @@ class AccountManager:
         self.conversation_count = 0
         self.failure_count = 0
         self.session_usage_count = 0
+        # Per-account lock: only 1 request at a time per account
+        self._busy_lock = asyncio.Lock()
+        self._busy = False
+
+    @property
+    def is_busy(self) -> bool:
+        """Return True if this account is currently processing a request."""
+        return self._busy
+
+    async def acquire(self) -> None:
+        """Mark account as busy (acquire lock)."""
+        await self._busy_lock.acquire()
+        self._busy = True
+
+    def release(self) -> None:
+        """Mark account as free (release lock)."""
+        self._busy = False
+        try:
+            self._busy_lock.release()
+        except RuntimeError:
+            pass  # already released
 
     def _get_cooldown_seconds(self, quota_type: Optional[str]) -> int:
         if quota_type == "images":
@@ -173,7 +194,11 @@ class MultiAccountManager:
         self.account_list.append(config.account_id)
         logger.debug(f"[MULTI] Added account: {config.account_id}")
 
-    def get_available_accounts(self, required_quota_types: Optional[Iterable[str]] = None) -> List[AccountManager]:
+    def get_available_accounts(
+        self,
+        required_quota_types: Optional[Iterable[str]] = None,
+        exclude_busy: bool = False,
+    ) -> List[AccountManager]:
         available = []
         for acc in self.accounts.values():
             if acc.config.disabled:
@@ -181,6 +206,8 @@ class MultiAccountManager:
             if acc.config.is_expired():
                 continue
             if not acc.are_quotas_available(required_quota_types):
+                continue
+            if exclude_busy and acc.is_busy:
                 continue
             available.append(acc)
         return available
@@ -199,7 +226,11 @@ class MultiAccountManager:
                 raise RuntimeError(f"Account {account_id} quota unavailable")
             return account
 
-        available = self.get_available_accounts(required_quota_types)
+        # Prefer non-busy accounts first
+        available = self.get_available_accounts(required_quota_types, exclude_busy=True)
+        if not available:
+            # Fall back to all available (caller will wait via acquire())
+            available = self.get_available_accounts(required_quota_types, exclude_busy=False)
         if not available:
             raise RuntimeError("No available Gemini accounts")
 
@@ -214,7 +245,7 @@ class MultiAccountManager:
         selected.session_usage_count += 1
         logger.info(
             f"[MULTI] [req_{request_id}] Selected: {selected.config.account_id} "
-            f"({index}/{len(available)})"
+            f"({index}/{len(available)}, busy={selected.is_busy})"
         )
         return selected
 

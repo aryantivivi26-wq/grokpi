@@ -330,6 +330,13 @@ class GeminiBackendClient(BackendClient):
         if account_manager is None or google_session is None:
             raise RuntimeError("No available Gemini accounts")
 
+        # Acquire per-account lock (1 request at a time per account)
+        await account_manager.acquire()
+        logger.info(
+            f"[GEMINI] [{account_manager.config.account_id}] [req_{request_id}] "
+            f"Account locked"
+        )
+
         # Parse messages
         last_text, current_images = await parse_last_message(
             messages, self._http_client, request_id
@@ -345,94 +352,105 @@ class GeminiBackendClient(BackendClient):
         async def response_wrapper():
             nonlocal account_manager, google_session
 
-            available = self._multi_account_mgr.get_available_accounts(required_quota_types)
-            max_retries = min(self._max_account_switch_tries, max(len(available), 1))
+            try:
+                available = self._multi_account_mgr.get_available_accounts(required_quota_types)
+                max_retries = min(self._max_account_switch_tries, max(len(available), 1))
 
-            current_text = text_to_send
-            current_retry_mode = is_retry_mode
-            current_file_ids: List[str] = []
+                current_text = text_to_send
+                current_retry_mode = is_retry_mode
+                current_file_ids: List[str] = []
 
-            for retry_idx in range(max_retries):
-                try:
-                    cached = self._multi_account_mgr.global_session_cache.get(conv_key)
-                    if not cached:
-                        new_sess = await create_google_session(
-                            account_manager, self._http_client, USER_AGENT, request_id
-                        )
-                        await self._multi_account_mgr.set_session_cache(
-                            conv_key, account_manager.config.account_id, new_sess
-                        )
-                        current_session = new_sess
-                        current_retry_mode = True
-                        current_file_ids = []
-                    else:
-                        current_session = cached["session_id"]
-
-                    # Upload images if needed
-                    if current_images and not current_file_ids:
-                        for img in current_images:
-                            fid = await upload_context_file(
-                                current_session, img["mime"], img["data"],
+                for retry_idx in range(max_retries):
+                    try:
+                        cached = self._multi_account_mgr.global_session_cache.get(conv_key)
+                        if not cached:
+                            new_sess = await create_google_session(
                                 account_manager, self._http_client, USER_AGENT, request_id
                             )
-                            current_file_ids.append(fid)
-
-                    # Build full context on retry
-                    if current_retry_mode:
-                        current_text = build_full_context_text(messages)
-
-                    async for chunk in self._stream_chat(
-                        session=current_session,
-                        text_content=current_text,
-                        file_ids=current_file_ids,
-                        model_name=model,
-                        chat_id=chat_id,
-                        created_time=created_time,
-                        account_manager=account_manager,
-                        is_stream=stream,
-                        request_id=request_id,
-                        base_url=base_url,
-                    ):
-                        yield chunk
-
-                    break  # Success
-
-                except Exception as e:
-                    qt = MODEL_TO_QUOTA_TYPE.get(model, "text")
-                    account_manager.handle_error("chat request failed", request_id, qt)
-
-                    if retry_idx < max_retries - 1:
-                        logger.warning(
-                            f"[GEMINI] [{account_manager.config.account_id}] [req_{request_id}] "
-                            f"Switching account ({retry_idx + 1}/{max_retries})"
-                        )
-                        try:
-                            new_account = await self._multi_account_mgr.get_account(
-                                None, request_id, required_quota_types
-                            )
-                            new_sess = await create_google_session(
-                                new_account, self._http_client, USER_AGENT, request_id
-                            )
                             await self._multi_account_mgr.set_session_cache(
-                                conv_key, new_account.config.account_id, new_sess
+                                conv_key, account_manager.config.account_id, new_sess
                             )
-                            account_manager = new_account
+                            current_session = new_sess
                             current_retry_mode = True
                             current_file_ids = []
-                        except Exception as switch_err:
+                        else:
+                            current_session = cached["session_id"]
+
+                        # Upload images if needed
+                        if current_images and not current_file_ids:
+                            for img in current_images:
+                                fid = await upload_context_file(
+                                    current_session, img["mime"], img["data"],
+                                    account_manager, self._http_client, USER_AGENT, request_id
+                                )
+                                current_file_ids.append(fid)
+
+                        # Build full context on retry
+                        if current_retry_mode:
+                            current_text = build_full_context_text(messages)
+
+                        async for chunk in self._stream_chat(
+                            session=current_session,
+                            text_content=current_text,
+                            file_ids=current_file_ids,
+                            model_name=model,
+                            chat_id=chat_id,
+                            created_time=created_time,
+                            account_manager=account_manager,
+                            is_stream=stream,
+                            request_id=request_id,
+                            base_url=base_url,
+                        ):
+                            yield chunk
+
+                        break  # Success
+
+                    except Exception as e:
+                        qt = MODEL_TO_QUOTA_TYPE.get(model, "text")
+                        account_manager.handle_error("chat request failed", request_id, qt)
+
+                        if retry_idx < max_retries - 1:
+                            logger.warning(
+                                f"[GEMINI] [{account_manager.config.account_id}] [req_{request_id}] "
+                                f"Switching account ({retry_idx + 1}/{max_retries})"
+                            )
+                            try:
+                                # Release old account, acquire new one
+                                account_manager.release()
+                                new_account = await self._multi_account_mgr.get_account(
+                                    None, request_id, required_quota_types
+                                )
+                                await new_account.acquire()
+                                new_sess = await create_google_session(
+                                    new_account, self._http_client, USER_AGENT, request_id
+                                )
+                                await self._multi_account_mgr.set_session_cache(
+                                    conv_key, new_account.config.account_id, new_sess
+                                )
+                                account_manager = new_account
+                                current_retry_mode = True
+                                current_file_ids = []
+                            except Exception as switch_err:
+                                logger.error(
+                                    f"[GEMINI] [req_{request_id}] Account switch failed: {switch_err}"
+                                )
+                                if stream:
+                                    yield f"data: {json.dumps({'error': {'message': 'Account Failover Failed'}})}\n\n"
+                                return
+                        else:
                             logger.error(
-                                f"[GEMINI] [req_{request_id}] Account switch failed: {switch_err}"
+                                f"[GEMINI] [req_{request_id}] Max retries ({max_retries}) exceeded"
                             )
                             if stream:
-                                yield f"data: {json.dumps({'error': {'message': 'Account Failover Failed'}})}\n\n"
+                                yield f"data: {json.dumps({'error': {'message': str(e)[:200]}})}\n\n"
                             return
-                    else:
-                        logger.error(
-                            f"[GEMINI] [req_{request_id}] Max retries ({max_retries}) exceeded"
-                        )
-                        if stream:
-                            yield f"data: {json.dumps({'error': {'message': str(e)[:200]}})}\n\n"
-                        return
+            finally:
+                # Always release per-account lock when done
+                account_manager.release()
+                logger.info(
+                    f"[GEMINI] [{account_manager.config.account_id}] [req_{request_id}] "
+                    f"Account released"
+                )
 
         if stream:
             return response_wrapper()
@@ -763,12 +781,14 @@ class GeminiBackendClient(BackendClient):
 
         total = len(self._multi_account_mgr.accounts)
         available = len(self._multi_account_mgr.get_available_accounts())
+        busy = sum(1 for acc in self._multi_account_mgr.accounts.values() if acc.is_busy)
         cached_sessions = len(self._multi_account_mgr.global_session_cache)
 
         return {
             "status": "ok" if available > 0 else "no_accounts_available",
             "total_accounts": total,
             "available_accounts": available,
+            "busy_accounts": busy,
             "cached_sessions": cached_sessions,
             "models": self._all_model_ids(),
         }
