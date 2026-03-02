@@ -249,22 +249,20 @@ class GeminiAutomation:
         # Set browser driver untuk generator.email
         if hasattr(mail_client, 'set_browser_driver'):
             mail_client.set_browser_driver(page, driver_type="dp")
-        code = mail_client.poll_for_code(timeout=15, interval=5, since_time=send_time)
+        code = mail_client.poll_for_code(timeout=90, interval=10, since_time=send_time)
 
         if not code:
-            self._log("warning", "⚠️ Timeout，15...")
-            time.sleep(15)
-            # （Klik tombol）
+            self._log("warning", "⚠️ Timeout 90s, resend code...")
+            time.sleep(5)
+            # Resend code
             send_time = datetime.now()
-            # 
             if self._click_resend_code_button(page):
-                # （3，5）
                 # Set browser driver lagi (untuk generator.email)
                 if hasattr(mail_client, 'set_browser_driver'):
                     mail_client.set_browser_driver(page, driver_type="dp")
-                code = mail_client.poll_for_code(timeout=15, interval=5, since_time=send_time)
+                code = mail_client.poll_for_code(timeout=60, interval=10, since_time=send_time)
                 if not code:
-                    self._log("error", "❌ ")
+                    self._log("error", "❌ Verification code not found after resend")
                     self._save_screenshot(page, "code_timeout_after_resend")
                     return {"success": False, "error": "verification code timeout after resend"}
             else:

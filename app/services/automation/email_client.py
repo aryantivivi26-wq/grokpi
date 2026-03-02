@@ -284,77 +284,126 @@ class GeneratorEmailClient:
                 pass
 
     def _extract_code_from_html(self, html: str) -> Optional[str]:
-        """Extract verification code dari HTML content"""
+        """Extract verification code dari HTML content.
+
+        Gemini Enterprise sends a 6-char uppercase alphanumeric code
+        (e.g. YGCRAS) inside a styled box after the text
+        "Your one-time verification code is:".
+
+        We first isolate the Google email body to avoid false-positives
+        from generator.email page chrome / ads.
+        """
         if not html:
             return None
-        
+
         import re
-        
-        # PRIORITY 1: Cari code dalam box/highlight yang biasa dipakai Google
-        # Google biasanya taruh OTP dalam div dengan background color/border
-        otp_box_patterns = [
-            r'<div[^>]*(?:background|border)[^>]*>[\s\n]*([A-Z0-9]{6})[\s\n]*</div>',
-            r'<td[^>]*(?:background|border)[^>]*>[\s\n]*([A-Z0-9]{6})[\s\n]*</td>',
-            r'<span[^>]*(?:font-size|color)[^>]*>[\s\n]*([A-Z0-9]{6})[\s\n]*</span>',
-        ]
-        
-        for pattern in otp_box_patterns:
-            matches = re.finditer(pattern, html, re.IGNORECASE | re.DOTALL)
-            for match in matches:
-                code = match.group(1).upper()
-                if self._is_valid_code(code):
-                    self._log("info", f"✅ OTP dari box: {code}")
-                    return code
-        
-        # PRIORITY 2: Cari dengan context "one-time" atau "verification code is:"
+
+        # --- Step 0: Try to isolate the Google email body ---
+        # generator.email wraps the email inside a dashed-border container.
+        # Look for the section that mentions Google / Gemini / verification.
+        email_body = html
+        # Try extracting content between markers that contain Google email
+        google_section = re.search(
+            r'(?:noreply-googlecloud|Gemini\s+Enterprise|verification\s+code)'
+            r'.*?'
+            r'(?:Google\s+Team|Google\s+LLC|</table>)',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if google_section:
+            email_body = google_section.group(0)
+            self._log("info", "📧 Isolated Google email section for code extraction")
+
+        # Strip HTML tags from the email body for text matching
+        text = re.sub(r'<[^>]+>', ' ', email_body)
+        # Collapse whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        # PRIORITY 1: Exact context match — "verification code is: XXXXXX"
         context_patterns = [
-            r"one-time.*?code.*?[:：\s]\s*([A-Z0-9]{6})\b",
-            r"verification\s+code\s+is.*?[:：\s]\s*([A-Z0-9]{6})\b",
-            r"Your\s+(?:one-time\s+)?(?:verification\s+)?code\s+is.*?[:：\s]\s*([A-Z0-9]{6})\b",
+            r"verification\s+code\s+is[:\s.]+([A-Z0-9]{5,8})\b",
+            r"one-time\s+(?:verification\s+)?code\s+is[:\s.]+([A-Z0-9]{5,8})\b",
+            r"Your\s+(?:one-time\s+)?(?:verification\s+)?code\s+is[:\s.]+([A-Z0-9]{5,8})\b",
+            r"(?:code|kode|OTP|verifikasi)[:\s]+([A-Z0-9]{5,8})\b",
         ]
-        
-        # Remove HTML tags untuk text matching
-        text = re.sub(r'<[^>]+>', ' ', html)
-        
+
         for pattern in context_patterns:
-            matches = re.finditer(pattern, text, re.IGNORECASE | re.DOTALL)
-            for match in matches:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
                 code = match.group(1).upper()
                 if self._is_valid_code(code):
                     self._log("info", f"✅ OTP dari context: {code}")
                     return code
-        
-        # PRIORITY 3: Fallback - cari 6 karakter A-Z0-9 anywhere
-        pattern = r"\b([A-Z0-9]{6})\b"
-        matches = re.finditer(pattern, text, re.IGNORECASE)
-        for match in matches:
-            code = match.group(1).upper()
-            if self._is_valid_code(code):
-                self._log("info", f"⚠️ OTP fallback: {code}")
-                return code
-        
+
+        # PRIORITY 2: Prominent styled box in email HTML
+        # Google puts the code in a <td> or <div> with background/letter-spacing
+        otp_box_patterns = [
+            # Code inside styled td (common Google pattern)
+            r'<td[^>]*style="[^"]*(?:background|letter-spacing|font-size:\s*2)[^"]*"[^>]*>\s*([A-Z0-9 ]{5,20})\s*</td>',
+            r'<div[^>]*style="[^"]*(?:background|letter-spacing|font-size:\s*2)[^"]*"[^>]*>\s*([A-Z0-9 ]{5,20})\s*</div>',
+            # Code inside bold/strong (common in simple emails)
+            r'<b>\s*([A-Z0-9]{5,8})\s*</b>',
+            r'<strong>\s*([A-Z0-9]{5,8})\s*</strong>',
+        ]
+
+        for pattern in otp_box_patterns:
+            matches = re.finditer(pattern, email_body, re.IGNORECASE | re.DOTALL)
+            for match in matches:
+                raw = match.group(1).strip()
+                # Remove spaces (Google sometimes adds letter-spacing)
+                code = re.sub(r'\s+', '', raw).upper()
+                if len(code) >= 5 and len(code) <= 8 and self._is_valid_code(code):
+                    self._log("info", f"✅ OTP dari styled box: {code}")
+                    return code
+
+        # PRIORITY 3: Isolated 6-char code on its own line in email section ONLY
+        # Only search within the isolated email body, not the whole page
+        if google_section:
+            standalone = re.findall(r'(?:^|\s)([A-Z0-9]{6})(?:\s|$)', text)
+            for candidate in standalone:
+                code = candidate.upper()
+                if self._is_valid_code(code):
+                    self._log("info", f"⚠️ OTP standalone in email: {code}")
+                    return code
+
+        self._log("warning", "❌ No verification code found in email content")
         return None
 
     def _is_valid_code(self, code: str) -> bool:
         """Validasi apakah code valid (bukan false positive)"""
-        if not code or len(code) != 6:
+        if not code or len(code) < 5 or len(code) > 8:
             return False
-        
+
         import re
-        
-        # Skip jika css units, colors, atau common words
+
+        # Must be alphanumeric only
+        if not re.match(r'^[A-Z0-9]+$', code, re.IGNORECASE):
+            return False
+
+        # Skip CSS units / color codes
         if re.match(r"^\d+(?:PX|PT|EM|REM|VH|VW|PC|FF|CC|EE|AA|BB|DD)$", code, re.IGNORECASE):
             return False
-        
-        # Skip common false positives (HTML/CSS/JS keywords)
-        false_positives = [
-            "SCRIPT", "IFRAME", "BUTTON", "CLICK", "MAILTO", "HTTPS",
+
+        # Skip hex color codes (e.g. FF0000, E8F0FE)
+        if re.match(r'^[0-9A-F]{6}$', code) and not re.search(r'[G-Z]', code, re.IGNORECASE):
+            # Pure hex without any G-Z letters — likely a color code, skip
+            # But codes like YGCRAS have non-hex letters, so they pass
+            pass  # Allow it — could be a valid code too
+
+        # Skip common false positives (HTML/CSS/JS keywords, page chrome words)
+        false_positives = {
+            "SCRIPT", "IFRAME", "BUTTON", "CLICKS", "MAILTO", "HTTPS",
             "GOOGLE", "VERIFY", "CHROME", "WINDOW", "MARGIN", "BORDER",
-            "WEBKIT", "INLINE", "HEADER", "FOOTER", "CENTER", "BUYAPP"  # BUYAPP juga false positive!
-        ]
+            "WEBKIT", "INLINE", "HEADER", "FOOTER", "CENTER", "BUYAPP",
+            "RETURN", "SCREEN", "SCROLL", "HIDDEN", "NORMAL", "ITALIC",
+            "FAMILY", "WEIGHT", "STYLES", "IMAGES", "COLORS", "LAYOUT",
+            "MOBILE", "PLUGIN", "COOKIE", "ACCEPT", "RELOAD", "SUBMIT",
+            "DELETE", "CANCEL", "SEARCH", "DOMAIN", "SERVER", "IMPORT",
+            "FILTER", "EXPAND", "TOGGLE", "OBJECT", "STRING", "MASTER",
+            "SELECT", "INSERT", "UPDATE", "RANDOM", "EXPORT", "MODULE",
+            "STATIC", "PUBLIC", "SINCER",  # "Sincerely" truncated
+        }
         if code.upper() in false_positives:
             return False
-        
-        # OTP Google biasanya mix alpha-numeric, bukan pure alpha biasa
-        # Acceptable: EKZT7E, 123ABC, dll
+
         return True

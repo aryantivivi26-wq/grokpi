@@ -20,8 +20,11 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
-# Store Gemini accounts in persistent volume (same as DB)
-_gemini_file = Path(os.environ.get("SSO_FILE", "key.txt")).parent / "gemini_accounts.json"
+# Store Gemini accounts in persistent volume (/app/data/ is a Docker volume)
+_gemini_file = Path(os.environ.get("GEMINI_ACCOUNTS_FILE", "/app/data/gemini_accounts.json"))
+# Fallback: if we're not in Docker, use the legacy path next to SSO_FILE
+if not _gemini_file.parent.exists():
+    _gemini_file = Path(os.environ.get("SSO_FILE", "key.txt")).parent / "gemini_accounts.json"
 gemini_mgr = LocalGeminiManager(_gemini_file)
 
 
