@@ -162,20 +162,52 @@ class GeneratorEmailClient:
             # Tunggu page load
             time.sleep(3)
             
+            # Scroll down to ensure email body is visible/loaded
+            # generator.email shows ads at top, email body is below
+            try:
+                new_tab.scroll.to_bottom()
+                time.sleep(1)
+                new_tab.scroll.to_top()
+                time.sleep(1)
+            except Exception:
+                pass
+            
             # Ambil HTML content
             html_content = new_tab.html
             
-            # Parse untuk cari email items (cari dalam html raw)
+            # First try: look for verification-code class directly via DOM
+            try:
+                code_el = new_tab.ele('css:.verification-code', timeout=3)
+                if code_el:
+                    code_text = (code_el.text or "").strip()
+                    if code_text and 4 <= len(code_text) <= 8 and code_text.replace(" ", "").isalnum():
+                        code = code_text.replace(" ", "").upper()
+                        self._log("info", f"✅ Code from DOM .verification-code: {code}")
+                        return code
+            except Exception:
+                pass
+            
+            # Second try: look inside mess_bodiyy container
+            try:
+                email_container = new_tab.ele('css:.mess_bodiyy', timeout=2)
+                if email_container:
+                    container_html = email_container.html
+                    code = self._extract_code_from_html(container_html)
+                    if code:
+                        self._log("info", f"✅ Code from mess_bodiyy container")
+                        return code
+            except Exception:
+                pass
+            
+            # Third try: full page HTML extraction
             code = self._extract_code_from_html(html_content)
             
             if code:
-                self._log("info", f"✅ Code found in page")
+                self._log("info", f"✅ Code found in full page")
                 return code
             
             # Jika belum ketemu, coba cari email list dan klik detail
-            # Cari link/elemen yang mengandung "Google" atau "verification"
             try:
-                # Coba berbagai selector
                 email_items = (
                     new_tab.eles('css:.email-item') or
                     new_tab.eles('css:.message-item') or  
@@ -183,16 +215,13 @@ class GeneratorEmailClient:
                     new_tab.eles('css:.mail-item')
                 )
                 
-                for item in email_items[:5]:  # Cek 5 email terbaru
+                for item in email_items[:5]:
                     text = item.text.lower()
                     if 'google' in text or 'verification' in text or 'verify' in text:
                         self._log("info", f"📧 Email Google ditemukan, coba klik...")
-                        
-                        # Coba klik item
                         item.click()
                         time.sleep(2)
                         
-                        # Cek lagi di page
                         html_content = new_tab.html
                         code = self._extract_code_from_html(html_content)
                         if code:
@@ -298,21 +327,43 @@ class GeneratorEmailClient:
 
         import re
 
-        # --- Step 0: Try to isolate the Google email body ---
-        # generator.email wraps the email inside a dashed-border container.
-        # Look for the section that mentions Google / Gemini / verification.
-        email_body = html
-        # Try extracting content between markers that contain Google email
-        google_section = re.search(
-            r'(?:noreply-googlecloud|Gemini\s+Enterprise|verification\s+code)'
-            r'.*?'
-            r'(?:Google\s+Team|Google\s+LLC|</table>)',
-            html,
-            re.IGNORECASE | re.DOTALL,
+        # --- PRIORITY 0: Direct CSS class target (generator.email specific) ---
+        # generator.email renders code in: <span class="verification-code">YGCRAS</span>
+        direct_match = re.search(
+            r'<span[^>]*class="[^"]*verification-code[^"]*"[^>]*>\s*([A-Z0-9\s]{4,20})\s*</span>',
+            html, re.IGNORECASE | re.DOTALL,
         )
-        if google_section:
-            email_body = google_section.group(0)
-            self._log("info", "📧 Isolated Google email section for code extraction")
+        if direct_match:
+            code = re.sub(r'\s+', '', direct_match.group(1)).upper()
+            if code and len(code) >= 5 and len(code) <= 8:
+                self._log("info", f"✅ OTP dari verification-code class: {code}")
+                return code
+
+        # --- Step 0: Isolate the Google email body ---
+        # generator.email wraps email in <div class="mess_bodiyy">
+        # Fall back to regex if class not found
+        email_body = html
+        
+        # Try mess_bodiyy container first (generator.email specific)
+        bodiyy_match = re.search(
+            r'<div[^>]*class="[^"]*mess_bodiyy[^"]*"[^>]*>(.*?)</div>\s*<div[^>]*class="[^"]*border',
+            html, re.IGNORECASE | re.DOTALL,
+        )
+        if bodiyy_match:
+            email_body = bodiyy_match.group(1)
+            self._log("info", "📧 Isolated email from mess_bodiyy container")
+        else:
+            # Fallback: look for Google-specific markers
+            google_section = re.search(
+                r'(?:noreply-googlecloud|Gemini\s+Enterprise|verification\s+code)'
+                r'.*?'
+                r'(?:Google\s+Team|Google\s+LLC|</table>)',
+                html,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if google_section:
+                email_body = google_section.group(0)
+                self._log("info", "📧 Isolated Google email section for code extraction")
 
         # Strip HTML tags from the email body for text matching
         text = re.sub(r'<[^>]+>', ' ', email_body)
