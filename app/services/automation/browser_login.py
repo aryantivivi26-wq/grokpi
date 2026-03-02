@@ -8,7 +8,6 @@ import string
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from urllib.parse import quote
 
 from DrissionPage import ChromiumPage, ChromiumOptions
 
@@ -19,7 +18,7 @@ class TaskCancelledError(Exception):
 
 
 # Konstanta
-AUTH_HOME_URL = "https://auth.business.gemini.google/"
+AUTH_LOGIN_URL = "https://auth.business.gemini.google/login?"
 DEFAULT_XSRF_TOKEN = "KdLRzKwwBTD5wo8nUollAbY6cW0"
 
 # Path Chromium umum di Linux
@@ -163,462 +162,421 @@ class GeminiAutomation:
         return page
 
     def _run_flow(self, page, email: str, mail_client) -> dict:
-        """"""
+        """Execute the full Gemini Enterprise registration flow.
 
-        # ，
+        Flow (March 2026):
+        1. Open https://auth.business.gemini.google/login?
+        2. Fill email address + click "Continue with email"
+        3. Wait for verification page (accountverification.business.gemini.google)
+           - 6 individual input boxes for the code
+        4. Poll generator.email for OTP code
+        5. Enter code in the 6 boxes + click "Verify"
+        6. Handle "Try Business edition at no cost" page (name + Agree & get started)
+        7. Handle "Get answers from your data" popup (I'll do this later)
+        8. Extract cookies & config from business.gemini.google
+        """
         from datetime import datetime
-        send_time = datetime.now()
 
-        # Step 1:  Cookie
-        self._log("info", f"🌐 : {email}")
+        # =============================================
+        # Step 1: Open login page
+        # =============================================
+        self._log("info", f"🌐 Opening login page for: {email}")
+        page.get(AUTH_LOGIN_URL, timeout=self.timeout)
+        time.sleep(3)
 
-        page.get(AUTH_HOME_URL, timeout=self.timeout)
-        time.sleep(2)
-
-        #  Cookie
-        try:
-            self._log("info", "🍪  Cookies...")
-            page.set.cookies({
-                "name": "__Host-AP_SignInXsrf",
-                "value": DEFAULT_XSRF_TOKEN,
-                "url": AUTH_HOME_URL,
-                "path": "/",
-                "secure": True,
-            })
-            #  reCAPTCHA Cookie
-            page.set.cookies({
-                "name": "_GRECAPTCHA",
-                "value": "09ABCL...",
-                "url": "https://google.com",
-                "path": "/",
-                "secure": True,
-            })
-        except Exception as e:
-            self._log("warning", f"⚠️ Cookie : {e}")
-
-        login_hint = quote(email, safe="")
-        login_url = f"https://auth.business.gemini.google/login/email?continueUrl=https%3A%2F%2Fbusiness.gemini.google%2F&loginHint={login_hint}&xsrfToken={DEFAULT_XSRF_TOKEN}"
-
-        # ，
-        try:
-            page.listen.start(
-                targets=["batchexecute", "browserinfo", "verify-oob-code"],
-                is_regex=False,
-                method=("GET", "POST"),
-                res_type=("XHR", "FETCH", "DOCUMENT"),
-            )
-        except Exception:
-            pass
-
-        page.get(login_url, timeout=self.timeout)
-        time.sleep(5)
-
-        # Step 2: 
         current_url = page.url
-        self._log("info", f"📍  URL: {current_url}")
-        has_business_params = "business.gemini.google" in current_url and "csesidx=" in current_url and "/cid/" in current_url
+        self._log("info", f"📍 Current URL: {current_url}")
 
-        if has_business_params:
-            self._log("info", "✅ ，Ekstrak konfigurasi")
+        # Check if already logged in
+        if "business.gemini.google" in current_url and "csesidx=" in current_url and "/cid/" in current_url:
+            self._log("info", "✅ Already logged in, extracting config")
             return self._extract_config(page, email)
 
-        # Step 3: （5，10）
-        self._log("info", "📧 ...")
-        max_send_rounds = 5
-        send_round = 0
-        while True:
-            send_round += 1
-            if self._click_send_code_button(page):
+        # =============================================
+        # Step 2: Fill email and click "Continue with email"
+        # =============================================
+        self._log("info", "📧 Filling email address...")
+
+        # Find email input field
+        email_input = None
+        email_selectors = [
+            "css:input[type='email']",
+            "css:input[placeholder*='mail' i]",
+            "css:input[placeholder*='Email' i]",
+            "css:input[name='email']",
+            "css:input[type='text']",
+        ]
+        for selector in email_selectors:
+            try:
+                email_input = page.ele(selector, timeout=3)
+                if email_input:
+                    self._log("info", f"✅ Email input found: {selector}")
+                    break
+            except Exception:
+                continue
+
+        if not email_input:
+            self._log("error", "❌ Email input not found on login page")
+            self._save_screenshot(page, "email_input_missing")
+            return {"success": False, "error": "email input not found"}
+
+        # Type email with human-like input
+        email_input.click()
+        time.sleep(0.3)
+        if not self._simulate_human_input(email_input, email):
+            email_input.input(email, clear=True)
+        time.sleep(0.5)
+
+        # Click "Continue with email" button
+        self._log("info", "🖱️ Clicking 'Continue with email'...")
+        continue_btn = None
+        continue_selectors = [
+            "css:button[type='submit']",
+        ]
+        for selector in continue_selectors:
+            try:
+                continue_btn = page.ele(selector, timeout=3)
+                if continue_btn:
+                    break
+            except Exception:
+                continue
+
+        if not continue_btn:
+            # Fallback: find button by text
+            try:
+                buttons = page.eles("tag:button")
+                for btn in buttons:
+                    text = (btn.text or "").strip().lower()
+                    if "continue" in text or "email" in text or "sign in" in text:
+                        continue_btn = btn
+                        break
+            except Exception:
+                pass
+
+        if not continue_btn:
+            self._log("error", "❌ 'Continue with email' button not found")
+            self._save_screenshot(page, "continue_button_missing")
+            return {"success": False, "error": "continue button not found"}
+
+        continue_btn.click()
+        send_time = datetime.now()
+        self._log("info", "✅ Continue button clicked, waiting for verification page...")
+        time.sleep(5)
+
+        # =============================================
+        # Step 3: Wait for verification page
+        # =============================================
+        current_url = page.url
+        self._log("info", f"📍 Current URL: {current_url}")
+
+        # Wait up to 15s for the verification page to load
+        for i in range(30):
+            current_url = page.url
+            if "verify-oob-code" in current_url or "verification" in current_url:
+                self._log("info", "✅ Verification page loaded")
                 break
-            if send_round >= max_send_rounds:
-                self._log("error", "❌ （），IP")
-                self._save_screenshot(page, "send_code_button_failed")
-                return {"success": False, "error": "send code failed after retries"}
-            self._log("warning", f"⚠️ ，10 ({send_round}/{max_send_rounds})")
-            time.sleep(10)
+            time.sleep(0.5)
+        else:
+            # Check if we're already past verification
+            if "business.gemini.google" in current_url and "csesidx=" in current_url:
+                return self._extract_config(page, email)
+            self._log("error", f"❌ Verification page not reached. URL: {current_url}")
+            self._save_screenshot(page, "verify_page_not_reached")
+            return {"success": False, "error": f"verification page not reached: {current_url}"}
 
-        # Step 4: 
-        code_input = self._wait_for_code_input(page)
-        if not code_input:
-            self._log("error", "❌ ")
-            self._save_screenshot(page, "code_input_missing")
-            return {"success": False, "error": "code input not found"}
+        time.sleep(2)
 
-        # Step 5: （3，5）
-        self._log("info", "📬 ...")
-        # Set browser driver untuk generator.email
+        # =============================================
+        # Step 4: Wait for code input boxes to appear
+        # =============================================
+        self._log("info", "⏳ Waiting for code input boxes...")
+        code_inputs = self._wait_for_code_inputs(page)
+        if not code_inputs:
+            self._log("error", "❌ Code input boxes not found")
+            self._save_screenshot(page, "code_inputs_missing")
+            return {"success": False, "error": "code input boxes not found"}
+
+        self._log("info", f"✅ Found {len(code_inputs)} code input boxes")
+
+        # =============================================
+        # Step 5: Poll for OTP code from email
+        # =============================================
+        self._log("info", "📬 Polling for verification code...")
         if hasattr(mail_client, 'set_browser_driver'):
             mail_client.set_browser_driver(page, driver_type="dp")
+
         code = mail_client.poll_for_code(timeout=90, interval=10, since_time=send_time)
 
         if not code:
-            self._log("warning", "⚠️ Timeout 90s, resend code...")
-            time.sleep(5)
-            # Resend code
-            send_time = datetime.now()
+            # Try resend code
+            self._log("warning", "⚠️ No code received, clicking Resend code...")
             if self._click_resend_code_button(page):
-                # Set browser driver lagi (untuk generator.email)
+                send_time = datetime.now()
+                time.sleep(3)
                 if hasattr(mail_client, 'set_browser_driver'):
                     mail_client.set_browser_driver(page, driver_type="dp")
                 code = mail_client.poll_for_code(timeout=60, interval=10, since_time=send_time)
-                if not code:
-                    self._log("error", "❌ Verification code not found after resend")
-                    self._save_screenshot(page, "code_timeout_after_resend")
-                    return {"success": False, "error": "verification code timeout after resend"}
-            else:
-                self._log("error", "❌ Timeout")
+
+            if not code:
+                self._log("error", "❌ Verification code not found after resend")
                 self._save_screenshot(page, "code_timeout")
                 return {"success": False, "error": "verification code timeout"}
 
-        self._log("info", f"✅ : {code}")
+        self._log("info", f"✅ Got verification code: {code}")
 
-        # Step 6: 
-        code_input = page.ele("css:input[jsname='ovqh0b']", timeout=3) or \
-                     page.ele("css:input[type='tel']", timeout=2)
-
-        if not code_input:
-            self._log("error", "❌ ")
-            return {"success": False, "error": "code input expired"}
-
-        # ，
-        self._log("info", "⌨️ ...")
-        if not self._simulate_human_input(code_input, code):
-            self._log("warning", "⚠️ ，")
-            code_input.input(code, clear=True)
-            time.sleep(0.5)
-
-        # Find and click submit button instead of just pressing Enter (better for headless)
-        self._log("info", "🔍 Submit button...")
-        submit_button = None
+        # =============================================
+        # Step 6: Enter code in the 6 input boxes + click Verify
+        # =============================================
+        self._log("info", "⌨️ Entering verification code...")
         
-        # Try multiple button selectors
-        button_selectors = [
-            "css:button[jsname='LgbsSe']",  # Google's next button
-            "css:button[type='submit']",
-            "css:div[role='button'][jsname='LgbsSe']"
-        ]
-        
-        for selector in button_selectors:
-            submit_button = page.ele(selector, timeout=2)
-            if submit_button:
-                self._log("info", f"✅ Submit button found: {selector}")
-                break
-        
-        if submit_button:
-            self._log("info", "🖱️ Click submit button...")
-            submit_button.click()
-            time.sleep(1)
+        # Re-find code inputs (tab may have changed)
+        code_inputs = self._wait_for_code_inputs(page, timeout=5)
+        if not code_inputs:
+            self._log("error", "❌ Code inputs disappeared")
+            return {"success": False, "error": "code inputs disappeared after polling"}
+
+        # Enter each character into its respective box
+        success = self._enter_code_in_boxes(page, code_inputs, code)
+        if not success:
+            self._log("error", "❌ Failed to enter code in boxes")
+            return {"success": False, "error": "failed to enter code"}
+
+        time.sleep(1)
+
+        # Click "Verify" button
+        self._log("info", "🖱️ Clicking Verify button...")
+        verify_btn = self._find_button_by_text(page, ["verify", "verifikasi", "submit"])
+        if verify_btn:
+            verify_btn.click()
         else:
-            # Fallback: press Enter
-            self._log("warning", "⚠️ Submit button not found, fallback to Enter key")
-            code_input.input("\n")
-            time.sleep(0.5)
+            # Fallback: submit via Enter key on last input
+            self._log("warning", "⚠️ Verify button not found, pressing Enter...")
+            try:
+                code_inputs[-1].input("\n")
+            except Exception:
+                pass
 
-        # Step 7: Wait for page navigation (with URL change detection)
-        self._log("info", "⏳ Waiting for verification...")
+        # Wait for page to navigate away from verification
+        self._log("info", "⏳ Waiting for verification result...")
         old_url = page.url
-        
-        # Wait up to 20 seconds for URL change
-        for i in range(40):  # 40 * 0.5s = 20s max
+        for i in range(60):  # 30 seconds max
             time.sleep(0.5)
             current_url = page.url
             if current_url != old_url and "verify-oob-code" not in current_url:
-                self._log("info", f"✅ Page navigated from {old_url} to {current_url}")
+                self._log("info", f"✅ Verification succeeded! URL: {current_url}")
                 break
-            if i > 0 and i % 4 == 0:
-                self._log("info", f"⏳ Still waiting... ({i//2}s)")
-        
-        # Additional wait for page stability
+            if i > 0 and i % 8 == 0:
+                self._log("info", f"⏳ Still waiting... ({i // 2}s)")
+        else:
+            current_url = page.url
+            if "verify-oob-code" in current_url:
+                self._log("error", "❌ Verification failed (still on verify page)")
+                self._save_screenshot(page, "verification_failed")
+                return {"success": False, "error": "verification code rejected"}
+
         time.sleep(3)
 
-        #  URL 
+        # =============================================
+        # Step 7: Handle "Try Business edition" signup page
+        # =============================================
         current_url = page.url
-        self._log("info", f"📍  URL: {current_url}")
-
-        # （）
-        if "verify-oob-code" in current_url:
-            self._log("error", "❌ ")
-            self._save_screenshot(page, "verification_submit_failed")
-            return {"success": False, "error": "verification code submission failed"}
-
-        # Step 8: （）
+        self._log("info", f"📍 Post-verification URL: {current_url}")
         self._handle_agreement_page(page)
 
-        # Step 9: 
+        # =============================================
+        # Step 8: Handle "Get answers from your data" popup
+        # =============================================
+        self._handle_data_popup(page)
+
+        # =============================================
+        # Step 9: Navigate to dashboard & extract config
+        # =============================================
         current_url = page.url
         has_business_params = "business.gemini.google" in current_url and "csesidx=" in current_url and "/cid/" in current_url
 
         if has_business_params:
+            self._log("info", "🎊 Login berhasil! Extracting config...")
             return self._extract_config(page, email)
 
-        # Step 10: ，
+        # If not on dashboard yet, navigate there
         if "business.gemini.google" not in current_url:
+            self._log("info", "🌐 Navigating to business.gemini.google...")
             page.get("https://business.gemini.google/", timeout=self.timeout)
             time.sleep(5)
 
-        # Step 11: 
+        # Handle any remaining setup pages
+        current_url = page.url
+        if "/admin/create" in current_url:
+            self._handle_agreement_page(page)
+            time.sleep(3)
+
+        # Handle username setup if needed
         if "cid" not in page.url:
             if self._handle_username_setup(page):
                 time.sleep(5)
 
-        # Step 12:  URL （csesidx  cid）
+        # Handle popup again (may appear after navigation)
+        self._handle_data_popup(page)
+
+        # Wait for URL with business params
         if not self._wait_for_business_params(page):
             page.refresh()
             time.sleep(5)
+            self._handle_data_popup(page)
             if not self._wait_for_business_params(page):
-                self._log("error", "❌ URL ")
+                self._log("error", "❌ Business params not found in URL")
                 self._save_screenshot(page, "params_missing")
                 return {"success": False, "error": "URL parameters not found"}
 
-        # Step 13: Ekstrak konfigurasi
-        self._log("info", "🎊 Login berhasil，Ekstrak konfigurasi...")
+        self._log("info", "🎊 Login berhasil! Extracting config...")
         return self._extract_config(page, email)
 
     def _click_send_code_button(self, page) -> bool:
-        """（）"""
+        """Legacy: Click send code button (kept for resend compatibility)."""
         time.sleep(2)
         max_send_attempts = 5
         resend_delay_seconds = 10
 
-        # 1: ID
-        direct_btn = page.ele("#sign-in-with-email", timeout=5)
-        if direct_btn:
-            for attempt in range(1, max_send_attempts + 1):
-                try:
-                    self._last_send_error = ""
-                    direct_btn.click()
-                    if self._verify_code_send_by_network(page) or self._verify_code_send_status(page):
-                        self._stop_listen(page)
-                        return True
-                    if self._last_send_error == "captcha_check_failed":
-                        self._log("error", f"❌ ，IP ({attempt}/{max_send_attempts})")
-                    else:
-                        self._log("warning", f"⚠️ ，{resend_delay_seconds} ({attempt}/{max_send_attempts})")
-                    time.sleep(resend_delay_seconds)
-                except Exception as e:
-                    self._log("warning", f"⚠️ : {e}")
-            self._stop_listen(page)
-            return False
-
-        # 2: 
-        keywords = ["", "", "email", "Email", "Send code", "Send verification", "Verification code"]
+        # Try "Continue with email" or "Send code" button
+        keywords = ["continue", "email", "Send code", "Send verification", "Verification code"]
         try:
             buttons = page.eles("tag:button")
             for btn in buttons:
                 text = (btn.text or "").strip()
-                if text and any(kw in text for kw in keywords):
+                if text and any(kw.lower() in text.lower() for kw in keywords):
                     for attempt in range(1, max_send_attempts + 1):
                         try:
-                            self._last_send_error = ""
                             btn.click()
-                            if self._verify_code_send_by_network(page) or self._verify_code_send_status(page):
-                                self._stop_listen(page)
+                            time.sleep(3)
+                            # Check if we navigated to verification page
+                            if "verify" in page.url.lower() or "verification" in page.url.lower():
                                 return True
-                            if self._last_send_error == "captcha_check_failed":
-                                self._log("error", f"❌ ，IP ({attempt}/{max_send_attempts})")
-                            else:
-                                self._log("warning", f"⚠️ ，{resend_delay_seconds} ({attempt}/{max_send_attempts})")
-                            time.sleep(resend_delay_seconds)
+                            if attempt < max_send_attempts:
+                                self._log("warning", f"⚠️ Retry... ({attempt}/{max_send_attempts})")
+                                time.sleep(resend_delay_seconds)
                         except Exception as e:
-                            self._log("warning", f"⚠️ : {e}")
-                    self._stop_listen(page)
+                            self._log("warning", f"⚠️ Click error: {e}")
                     return False
         except Exception as e:
-            self._log("warning", f"⚠️ : {e}")
+            self._log("warning", f"⚠️ Button search error: {e}")
 
-        # 
-        code_input = page.ele("css:input[jsname='ovqh0b']", timeout=2) or page.ele("css:input[name='pinInput']", timeout=1)
-        if code_input:
-            self._stop_listen(page)
-            self._log("info", "✅ ")
-
-            # （）
-            if self._click_resend_code_button(page):
-                self._log("info", "✅ ")
-                return True
-            else:
-                self._log("warning", "⚠️ ，")
-                return True
-
-        self._stop_listen(page)
-        self._log("error", "❌ ")
         return False
 
-    def _stop_listen(self, page) -> None:
-        """"""
-        try:
-            if hasattr(page, 'listen') and page.listen:
-                page.listen.stop()
-        except Exception:
-            pass
 
-    def _verify_code_send_by_network(self, page) -> bool:
-        """"""
-        try:
-            time.sleep(1)
+    def _wait_for_code_inputs(self, page, timeout: int = 30):
+        """Wait for the 6 individual code input boxes on the verification page.
 
-            packets = []
-            max_wait_seconds = 6
-            deadline = time.time() + max_wait_seconds
+        The verification page at accountverification.business.gemini.google
+        has 6 separate input boxes for the verification code.
+        """
+        for attempt in range(timeout // 2):
             try:
-                while time.time() < deadline:
-                    got_any = False
-                    for packet in page.listen.steps(timeout=1, gap=1):
-                        packets.append(packet)
-                        got_any = True
-                    if got_any:
-                        time.sleep(0.2)
-                    else:
-                        break
+                # Try various selectors for the individual input boxes
+                inputs = (
+                    page.eles("css:input[type='text']", timeout=1) or
+                    page.eles("css:input[type='tel']", timeout=1) or
+                    page.eles("css:input[autocomplete='one-time-code']", timeout=1) or
+                    page.eles("css:input[maxlength='1']", timeout=1)
+                )
+                # Filter to only small single-char inputs (the 6 code boxes)
+                code_inputs = []
+                for inp in inputs:
+                    try:
+                        maxlen = inp.attr("maxlength")
+                        input_type = inp.attr("type") or ""
+                        # Code boxes typically have maxlength=1 or are type=text/tel
+                        if maxlen == "1" or (input_type in ("text", "tel") and len(code_inputs) < 6):
+                            code_inputs.append(inp)
+                    except Exception:
+                        code_inputs.append(inp)
+
+                if len(code_inputs) >= 6:
+                    return code_inputs[:6]
+
+                # Also try to find a single input that accepts the full code
+                single_input = (
+                    page.ele("css:input[jsname='ovqh0b']", timeout=1) or
+                    page.ele("css:input[name='pinInput']", timeout=1) or
+                    page.ele("css:input[autocomplete='one-time-code']", timeout=1)
+                )
+                if single_input:
+                    return [single_input]  # Wrap in list for compatibility
+
             except Exception:
+                pass
+            time.sleep(2)
+        return None
+
+    def _enter_code_in_boxes(self, page, code_inputs: list, code: str) -> bool:
+        """Enter verification code into input boxes.
+
+        Handles both:
+        - 6 individual boxes (one char each)
+        - Single input box (all chars at once)
+        """
+        try:
+            if len(code_inputs) == 1:
+                # Single input box — type all at once
+                inp = code_inputs[0]
+                inp.click()
+                time.sleep(0.3)
+                if not self._simulate_human_input(inp, code):
+                    inp.input(code, clear=True)
+                return True
+
+            # 6 individual boxes
+            if len(code) < len(code_inputs):
+                self._log("error", f"❌ Code length ({len(code)}) < boxes ({len(code_inputs)})")
                 return False
 
-            if not packets:
-                return False
-
-            # （）
-            self._save_network_packets(packets)
-
-            found_batchexecute = False
-            found_batchexecute_error = False
-
-            for packet in packets:
+            for i, inp in enumerate(code_inputs):
+                char = code[i] if i < len(code) else ""
                 try:
-                    url = str(packet.url) if hasattr(packet, 'url') else str(packet)
-
-                    if 'batchexecute' in url:
-                        found_batchexecute = True
-
-                        try:
-                            response = packet.response if hasattr(packet, 'response') else None
-                            if response and hasattr(response, 'raw_body'):
-                                body = response.raw_body
-                                raw_body_str = str(body)
-                                if "CAPTCHA_CHECK_FAILED" in raw_body_str:
-                                    found_batchexecute_error = True
-                                    self._last_send_error = "captcha_check_failed"
-                                elif "SendEmailOtpError" in raw_body_str:
-                                    found_batchexecute_error = True
-                                    self._last_send_error = "send_email_otp_error"
-                        except Exception:
-                            pass
-
-                except Exception:
+                    inp.click()
+                    time.sleep(random.uniform(0.05, 0.15))
+                    inp.input(char)
+                    time.sleep(random.uniform(0.08, 0.2))
+                except Exception as e:
+                    self._log("warning", f"⚠️ Input box {i+1} error: {e}")
+                    # Try alternative: just type into first box (some UIs auto-advance)
+                    if i == 0:
+                        return False
                     continue
 
-            if found_batchexecute:
-                if found_batchexecute_error:
-                    return False
-                return True
-            else:
-                return False
-
-        except Exception:
+            self._log("info", f"✅ Entered {len(code)} chars into {len(code_inputs)} boxes")
+            return True
+        except Exception as e:
+            self._log("error", f"❌ Enter code error: {e}")
             return False
 
-    def _verify_code_send_status(self, page) -> bool:
-        """"""
-        time.sleep(2)
+    def _find_button_by_text(self, page, keywords: list, timeout: int = 5):
+        """Find a button by matching text content."""
         try:
-            success_keywords = ["", "code sent", "email sent", "check your email", ""]
-            error_keywords = [
-                "",
-                "something went wrong",
-                "error",
-                "failed",
-                "try again",
-                "",
-                ""
-            ]
-            selectors = [
-                "css:.zyTWof-gIZMF",
-                "css:[role='alert']",
-                "css:aside",
-            ]
-            for selector in selectors:
-                try:
-                    elements = page.eles(selector, timeout=1)
-                    for elem in elements[:20]:
-                        text = (elem.text or "").strip()
-                        if not text:
-                            continue
-                        if any(kw in text for kw in error_keywords):
-                            return False
-                        if any(kw in text for kw in success_keywords):
-                            return True
-                except Exception:
-                    continue
-            return True
-        except Exception:
-            return True
+            # First try submit button
+            submit_btn = page.ele("css:button[type='submit']", timeout=2)
+            if submit_btn:
+                text = (submit_btn.text or "").strip().lower()
+                for kw in keywords:
+                    if kw.lower() in text:
+                        return submit_btn
 
-    def _truncate_text(self, text: str, max_len: int = 2000) -> str:
-        if text is None:
-            return ""
-        if len(text) <= max_len:
-            return text
-        return text[:max_len] + f"...(truncated, total={len(text)})"
+            # Then search all buttons
+            buttons = page.eles("tag:button", timeout=timeout)
+            for btn in buttons:
+                text = (btn.text or "").strip().lower()
+                for kw in keywords:
+                    if kw.lower() in text:
+                        return btn
 
-    def _save_network_packets(self, packets) -> None:
-        """Save network packets for debugging."""
-        try:
-            base_dir = os.path.join("/app", "data", "logs", "network")
-            os.makedirs(base_dir, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-            file_path = os.path.join(base_dir, f"network-{ts}.jsonl")
-
-            def safe_str(value):
-                try:
-                    return value if isinstance(value, str) else str(value)
-                except Exception:
-                    return "<unprintable>"
-
-            with open(file_path, "a", encoding="utf-8") as f:
-                for packet in packets:
-                    try:
-                        req = packet.request if hasattr(packet, "request") else None
-                        resp = packet.response if hasattr(packet, "response") else None
-                        fail = packet.fail_info if hasattr(packet, "fail_info") else None
-
-                        item = {
-                            "url": safe_str(packet.url) if hasattr(packet, "url") else safe_str(packet),
-                            "method": safe_str(packet.method) if hasattr(packet, "method") else "UNKNOWN",
-                            "resourceType": safe_str(packet.resourceType) if hasattr(packet, "resourceType") else "",
-                            "is_failed": bool(packet.is_failed) if hasattr(packet, "is_failed") else False,
-                            "fail_info": safe_str(fail) if fail else "",
-                            "request": {
-                                "headers": req.headers if req and hasattr(req, "headers") else {},
-                                "postData": req.postData if req and hasattr(req, "postData") else "",
-                            },
-                            "response": {
-                                "status": resp.status if resp and hasattr(resp, "status") else 0,
-                                "headers": resp.headers if resp and hasattr(resp, "headers") else {},
-                                "raw_body": resp.raw_body if resp and hasattr(resp, "raw_body") else "",
-                            },
-                        }
-                        f.write(json.dumps(item, ensure_ascii=False) + "\n")
-                    except Exception as e:
-                        f.write(json.dumps({"error": safe_str(e)}, ensure_ascii=False) + "\n")
+            # Try link elements too (some buttons are <a> tags)
+            links = page.eles("tag:a", timeout=2)
+            for link in links:
+                text = (link.text or "").strip().lower()
+                for kw in keywords:
+                    if kw.lower() in text:
+                        return link
         except Exception:
             pass
-
-    def _wait_for_code_input(self, page, timeout: int = 30):
-        """"""
-        selectors = [
-            "css:input[jsname='ovqh0b']",
-            "css:input[type='tel']",
-            "css:input[name='pinInput']",
-            "css:input[autocomplete='one-time-code']",
-        ]
-        for _ in range(timeout // 2):
-            for selector in selectors:
-                try:
-                    el = page.ele(selector, timeout=1)
-                    if el:
-                        return el
-                except Exception:
-                    continue
-            time.sleep(2)
         return None
 
     def _simulate_human_input(self, element, text: str) -> bool:
@@ -648,112 +606,142 @@ class GeminiAutomation:
         except Exception:
             return False
 
-    def _find_verify_button(self, page):
-        """（）"""
-        try:
-            buttons = page.eles("tag:button")
-            for btn in buttons:
-                text = (btn.text or "").strip().lower()
-                if text and "" not in text and "" not in text and "resend" not in text and "send" not in text:
-                    return btn
-        except Exception:
-            pass
-        return None
-
     def _click_resend_code_button(self, page) -> bool:
-        """"""
+        """Click 'Resend code' button/link on verification page."""
         time.sleep(2)
-
-        # （ _find_verify_button ）
         try:
-            buttons = page.eles("tag:button")
-            for btn in buttons:
-                text = (btn.text or "").strip().lower()
-                if text and ("" in text or "resend" in text):
-                    try:
-                        self._log("info", f"🔄 ")
-                        btn.click()
-                        time.sleep(2)
-                        return True
-                    except Exception:
-                        pass
+            # Look for "Resend code" link or button
+            resend = self._find_button_by_text(page, ["resend"])
+            if resend:
+                self._log("info", "🔄 Clicking 'Resend code'...")
+                resend.click()
+                time.sleep(3)
+                return True
         except Exception:
             pass
 
         return False
 
     def _handle_agreement_page(self, page) -> None:
-        """Handle Gemini Business agreement/setup page"""
-        if "/admin/create" in page.url:
-            self._log("info", "📋 Agreement page detected, looking for form...")
-            
-            # Wait a bit for page to fully load
-            time.sleep(2)
-            
-            # Check if there's a name input field that needs to be filled
-            name_input = None
-            name_selectors = [
-                "css:input[type='text']",
-                "css:input[placeholder*='name' i]",
-                "css:input[placeholder*='Full name' i]"
-            ]
-            
-            for selector in name_selectors:
+        """Handle 'Try Business edition at no cost for 30 days' signup page.
+
+        This page has:
+        - "First and last name" / "Full name" input field
+        - "Agree & get started" button
+        """
+        time.sleep(2)
+        current_url = page.url
+
+        # Check if we're on an agreement/signup/admin page
+        page_text = ""
+        try:
+            page_text = (page.ele("tag:body").text or "").lower()
+        except Exception:
+            pass
+
+        is_agreement = (
+            "/admin/create" in current_url or
+            "try business" in page_text or
+            "agree" in page_text or
+            "get started" in page_text or
+            "full name" in page_text or
+            "first and last name" in page_text
+        )
+
+        if not is_agreement:
+            return
+
+        self._log("info", "📋 Agreement page detected: 'Try Business edition at no cost'")
+
+        # Step 1: Fill name input
+        name_input = None
+        name_selectors = [
+            "css:input[placeholder*='name' i]",
+            "css:input[placeholder*='Full name' i]",
+            "css:input[aria-label*='name' i]",
+            "css:input[type='text']",
+        ]
+
+        for selector in name_selectors:
+            try:
                 name_input = page.ele(selector, timeout=2)
                 if name_input:
                     self._log("info", f"✅ Found name input: {selector}")
                     break
-            
-            if name_input:
-                # Fill in the name field
-                import random, string
-                suffix = "".join(random.choices(string.ascii_letters + string.digits, k=3))
-                full_name = f"Test User {suffix}"
-                
-                self._log("info", f"⌨️ Filling name: {full_name}")
-                name_input.click()
-                time.sleep(0.2)
-                
-                if not self._simulate_human_input(name_input, full_name):
-                    name_input.input(full_name, clear=True)
-                
-                time.sleep(0.5)
-            
-            # Now find and click the agreement button
-            button_found = False
-            
-            # Strategy 1: Find by class
-            agree_btn = page.ele("css:button.agree-button", timeout=2)
-            if agree_btn:
-                self._log("info", "✅ Found button by class")
-                agree_btn.click()
-                button_found = True
+            except Exception:
+                continue
+
+        if name_input:
+            from faker import Faker
+            try:
+                fake = Faker()
+                full_name = fake.name()
+            except Exception:
+                suffix = "".join(random.choices(string.ascii_letters, k=4))
+                full_name = f"Alex {suffix.capitalize()}"
+
+            self._log("info", f"⌨️ Filling name: {full_name}")
+            name_input.click()
+            time.sleep(0.3)
+            if not self._simulate_human_input(name_input, full_name):
+                name_input.input(full_name, clear=True)
+            time.sleep(0.5)
+        else:
+            self._log("warning", "⚠️ Name input not found, continuing...")
+
+        # Step 2: Click "Agree & get started" button
+        agree_btn = self._find_button_by_text(page, ["agree", "get started"])
+        if agree_btn:
+            self._log("info", f"✅ Clicking '{(agree_btn.text or '').strip()}'...")
+            agree_btn.click()
+            self._log("info", "⏳ Waiting for sign-in process...")
+            time.sleep(8)  # Sign-in takes a few seconds
+        else:
+            # Fallback: try submit button
+            submit_btn = page.ele("css:button[type='submit']", timeout=2)
+            if submit_btn:
+                self._log("info", "✅ Clicking submit button (fallback)")
+                submit_btn.click()
+                time.sleep(8)
             else:
-                # Strategy 2: Find button containing "Agree" text
-                self._log("info", "🔍 Trying to find button by text...")
-                buttons = page.eles("tag:button", timeout=3)
-                for btn in buttons:
-                    btn_text = (btn.text or "").strip().lower()
-                    if "agree" in btn_text or "get started" in btn_text:
-                        self._log("info", f"✅ Found button: {btn.text}")
-                        btn.click()
-                        button_found = True
-                        break
-            
-            if not button_found:
-                # Strategy 3: Find by type='submit'
-                submit_btn = page.ele("css:button[type='submit']", timeout=2)
-                if submit_btn:
-                    self._log("info", "✅ Found submit button")
-                    submit_btn.click()
-                    button_found = True
-            
-            if button_found:
-                self._log("info", "✅ Agreement button clicked, waiting...")
-                time.sleep(3)
-            else:
-                self._log("warning", "⚠️ No agreement button found, continuing anyway...")
-                time.sleep(1)
+                self._log("warning", "⚠️ No agreement button found, continuing...")
+
+    def _handle_data_popup(self, page) -> None:
+        """Handle 'Get answers from your data' popup.
+
+        This popup appears after first login with:
+        - "Get answers from your data"
+        - "I'll do this later" link/button
+        - "Connect my data" button
+        """
+        time.sleep(2)
+        try:
+            # Look for "I'll do this later" button/link
+            later_btn = self._find_button_by_text(page, [
+                "do this later",
+                "i'll do this later",
+                "later",
+                "skip",
+            ])
+            if later_btn:
+                self._log("info", "🖱️ Clicking 'I'll do this later' on data popup...")
+                later_btn.click()
+                time.sleep(2)
+                return
+
+            # Also check for dialog/modal dismiss
+            try:
+                dismiss_btns = page.eles("css:button[aria-label*='close' i]", timeout=2)
+                for btn in dismiss_btns:
+                    btn.click()
+                    self._log("info", "✅ Closed popup via close button")
+                    time.sleep(1)
+                    return
+            except Exception:
+                pass
+
+        except Exception as e:
+            self._log("info", f"No data popup found (this is OK): {e}")
 
     def _wait_for_cid(self, page, timeout: int = 10) -> bool:
         """URLcid"""
