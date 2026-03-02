@@ -21,20 +21,34 @@ class TaskCancelledError(Exception):
 AUTH_LOGIN_URL = "https://auth.business.gemini.google/login?"
 DEFAULT_XSRF_TOKEN = "KdLRzKwwBTD5wo8nUollAbY6cW0"
 
-# Path Chromium umum di Linux
+# Path Chromium umum di Linux (ordered: real Chrome first, snap-wrappers last)
 CHROMIUM_PATHS = [
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/opt/google/chrome/google-chrome",
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
 ]
 
 
 def _find_chromium_path() -> Optional[str]:
-    """Cari path browser Chromium/Chrome yang tersedia"""
+    """Cari path browser Chromium/Chrome yang tersedia.
+    Validates the binary actually works (avoids snap stubs).
+    """
+    import subprocess
     for path in CHROMIUM_PATHS:
         if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
+            # Quick check: snap stubs print error instead of version
+            try:
+                result = subprocess.run(
+                    [path, "--version"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode == 0 and ("chrome" in result.stdout.lower() or "chromium" in result.stdout.lower()):
+                    return path
+            except Exception:
+                # If --version fails but file exists, still try it
+                continue
     return None
 
 
