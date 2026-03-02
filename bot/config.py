@@ -34,7 +34,7 @@ class BotSettings(BaseSettings):
 
     # --- MongoDB ---
     MONGODB_URI: str = Field(
-        default="mongodb://mongo:27017",
+        default="",
         validation_alias=AliasChoices("MONGODB_URI", "MONGO_URI", "MONGO_URL"),
     )
     MONGODB_DB_NAME: str = Field(

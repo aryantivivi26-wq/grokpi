@@ -9,15 +9,13 @@ services:
     environment:
       - GATEWAY_BASE_URL=http://127.0.0.1:${PORT:-9563}
       - FLARESOLVERR_URL=http://flaresolverr:8191
-      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017}
+      - MONGODB_URI=${MONGODB_URI}
       - MONGODB_DB_NAME=${MONGODB_DB_NAME:-grokpi}
     volumes:
       - hubify-data:/app/data
       - hubify-db:/app/db
       # - ./key.txt:/app/key.txt:ro  # Uncomment jika pakai file lokal
     depends_on:
-      mongo:
-        condition: service_started
       flaresolverr:
         condition: service_started
     healthcheck:
@@ -36,20 +34,6 @@ services:
     # ports:
     #   - "8191:8191"
 
-  mongo:
-    image: mongo:7
-    container_name: grokpi-mongo
-    restart: unless-stopped
-    volumes:
-      - mongo-data:/data/db
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASS:-}
-    # Uncomment to expose MongoDB externally (for remote VPS sharing)
-    # ports:
-    #   - "27017:27017"
-
 volumes:
   hubify-data:
   hubify-db:
-  mongo-data:
